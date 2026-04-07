@@ -3,90 +3,97 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BetAI Pro</title>
+  <title>BetAI Sport Analytics</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="brand">🔥 BetAI Pro</div>
+      <div>
+        <h2 class="logo">BetAI Analytics</h2>
 
-      <nav class="menu">
-        <button class="menu-item active" data-page="dashboard">Tableau de bord</button>
-        <button class="menu-item" data-page="football">Football</button>
-        <button class="menu-item" data-page="aviator">Aviator</button>
-        <button class="menu-item" data-page="mines">Mines</button>
-        <button class="menu-item" data-page="virtual">Virtual</button>
-        <button class="menu-item" data-page="settings">Paramètres</button>
-      </nav>
+        <nav class="menu">
+          <button class="menu-item active" data-sport="football">Football réel</button>
+          <button class="menu-item" data-sport="basket">Basket</button>
+          <button class="menu-item" data-sport="tennis">Tennis</button>
+          <button class="menu-item" data-sport="tt">Tennis de table</button>
+        </nav>
+      </div>
 
-      <div class="sidebar-footer">
+      <div class="sidebar-user">
         <p>Connecté :</p>
         <strong>admin@betai.com</strong>
-        <p>Rôle : admin</p>
+        <p>Mode : analyse sportive</p>
       </div>
     </aside>
 
-    <main class="main-content">
+    <main class="main">
       <header class="topbar">
         <div>
-          <h1 id="pageTitle">Tableau de bord</h1>
-          <p class="subtitle">Analyse intelligente des matchs et signaux BetAI</p>
+          <h1 id="pageTitle">Football réel</h1>
+          <p class="sub">Gestion et analyse des résultats sportifs</p>
         </div>
-        <button class="refresh-btn" onclick="loadFootballPredictions()">Actualiser</button>
+        <div class="top-actions">
+          <button class="secondary-btn" id="exportBtn">Exporter JSON</button>
+          <button class="primary-btn" id="loadDemoBtn">Charger démo</button>
+        </div>
       </header>
 
-      <section class="stats-grid">
-        <div class="stat-card">
-          <span class="stat-label">Matchs analysés</span>
-          <strong id="statMatches">0</strong>
+      <section class="stats">
+        <div class="stat-box">
+          <span>Total matchs</span>
+          <strong id="statTotal">0</strong>
         </div>
-        <div class="stat-card">
-          <span class="stat-label">Signal fort</span>
+        <div class="stat-box">
+          <span>Score moyen</span>
+          <strong id="statAvg">0</strong>
+        </div>
+        <div class="stat-box">
+          <span>BTTS Oui</span>
+          <strong id="statBtts">0</strong>
+        </div>
+        <div class="stat-box">
+          <span>Indice fort</span>
           <strong id="statStrong">0</strong>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Prédiction principale</span>
-          <strong id="statTop">-</strong>
         </div>
       </section>
 
-      <section class="content-grid">
-        <div class="panel main-panel">
+      <section class="content">
+        <section class="left-panel">
           <div class="panel-header">
-            <h2 id="panelTitle">Prédictions Football</h2>
+            <h2>Matchs disponibles</h2>
+            <input type="text" id="searchInput" placeholder="Rechercher un match..." />
           </div>
 
-          <div id="result" class="cards-container">
-            <div class="empty-state">Clique sur “Actualiser” pour charger les analyses.</div>
-          </div>
-        </div>
+          <div id="matchList" class="match-list"></div>
+        </section>
 
-        <div class="panel side-panel">
-          <div class="panel-header">
-            <h2>Résumé</h2>
-          </div>
+        <aside class="right-panel">
+          <div class="form-card">
+            <h2>Ajouter un match</h2>
 
-          <div class="mini-box">
-            <h3>Statut API</h3>
-            <p id="apiStatus">En attente...</p>
-          </div>
+            <input id="homeTeam" placeholder="Équipe / Joueur domicile" />
+            <input id="awayTeam" placeholder="Équipe / Joueur extérieur" />
+            <input id="finalScore" placeholder="Score final (ex: 2-1)" />
+            <input id="halfScore" placeholder="Score mi-temps / set 1 (ex: 1-0)" />
+            <input id="shots" placeholder="Tirs cadrés / stats optionnelles" />
+            <input id="corners" placeholder="Corners / stats optionnelles" />
+            <textarea id="notes" placeholder="Notes / description"></textarea>
+            <input id="supplierLink" placeholder="Lien source / match / capture" />
+            <input type="file" id="matchImage" accept="image/*" />
 
-          <div class="mini-box">
-            <h3>Aviator</h3>
-            <p>Signal : <strong>1.65x - 2.10x</strong></p>
-          </div>
-
-          <div class="mini-box">
-            <h3>Mines</h3>
-            <p>Stratégie : <strong>3 clics prudents</strong></p>
+            <div class="form-actions">
+              <button class="primary-btn" id="saveBtn">Enregistrer</button>
+              <button class="secondary-btn" id="clearBtn">Annuler</button>
+            </div>
           </div>
 
-          <div class="mini-box">
-            <h3>Virtual</h3>
-            <p>Tendance : <strong>Hausse</strong></p>
+          <div class="form-card">
+            <h2>Importer données</h2>
+            <input type="file" id="importJson" accept=".json" />
+            <p class="hint">Importe un fichier JSON de matchs pour le sport actif.</p>
           </div>
-        </div>
+        </aside>
       </section>
     </main>
   </div>
