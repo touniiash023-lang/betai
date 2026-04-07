@@ -5,35 +5,37 @@ from football_ai import predict_match
 app = Flask(_name_)
 CORS(app)
 
+# ✅ Route test
 @app.route("/")
 def home():
-    return jsonify({
-        "message": "BetAI Analytics API is running",
-        "routes": ["/predict", "/demo"]
-    })
+    return "API BETAI OK"
 
+# ✅ DEMO (IMPORTANT)
 @app.route("/demo")
 def demo():
     return jsonify({
-        "football": predict_match("Real Madrid", "Sevilla")
+        "match": "Real Madrid vs Barcelona",
+        "winner": "Real Madrid",
+        "probability": "65%",
+        "score": "2-1",
+        "btts": "Yes"
     })
 
+# ✅ PREDICT (LE BOUTON UTILISE ÇA)
 @app.route("/predict", methods=["POST"])
 def predict():
-    data = request.get_json(force=True)
+    data = request.get_json()
 
-    sport = data.get("sport", "football").strip().lower()
-    home = data.get("home", "").strip()
-    away = data.get("away", "").strip()
+    home = data.get("home")
+    away = data.get("away")
 
     if not home or not away:
-        return jsonify({"error": "home and away are required"}), 400
-
-    if sport != "football":
-        return jsonify({"error": "only football is enabled in this version"}), 400
+        return jsonify({"error": "Missing teams"}), 400
 
     result = predict_match(home, away)
+
     return jsonify(result)
 
+# ✅ RUN
 if _name_ == "_main_":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=10000)
