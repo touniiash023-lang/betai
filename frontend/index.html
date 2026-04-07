@@ -3,100 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BetAI Sport Analytics</title>
+  <title>BetAI Analytics</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
+  <aside class="sidebar">
+    <h1>BetAI<br>Analytics</h1>
+    <nav>
+      <button class="nav-btn active" data-sport="football">Football réel</button>
+      <button class="nav-btn" data-sport="basket">Basket</button>
+      <button class="nav-btn" data-sport="tennis">Tennis</button>
+      <button class="nav-btn" data-sport="table_tennis">Tennis de table</button>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
       <div>
-        <h2 class="logo">BetAI Analytics</h2>
-
-        <nav class="menu">
-          <button class="menu-item active" data-sport="football">Football réel</button>
-          <button class="menu-item" data-sport="basket">Basket</button>
-          <button class="menu-item" data-sport="tennis">Tennis</button>
-          <button class="menu-item" data-sport="tt">Tennis de table</button>
-        </nav>
+        <h2 id="pageTitle">Football réel</h2>
+        <p class="subtitle">Analyse sportive avancée et projection statistique</p>
       </div>
+      <button id="loadDemoBtn">Charger démo</button>
+    </div>
 
-      <div class="sidebar-user">
-        <p>Connecté :</p>
-        <strong>admin@betai.com</strong>
-        <p>Mode : analyse sportive</p>
-      </div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
+    <section class="panel form-panel">
+      <h3>Analyser un match</h3>
+      <div class="grid">
         <div>
-          <h1 id="pageTitle">Football réel</h1>
-          <p class="sub">Gestion et analyse des résultats sportifs</p>
+          <label>Sport</label>
+          <select id="sport">
+            <option value="football">Football</option>
+            <option value="basket">Basket</option>
+            <option value="tennis">Tennis</option>
+            <option value="table_tennis">Tennis de table</option>
+          </select>
         </div>
-        <div class="top-actions">
-          <button class="secondary-btn" id="exportBtn">Exporter JSON</button>
-          <button class="primary-btn" id="loadDemoBtn">Charger démo</button>
+        <div>
+          <label>Équipe domicile</label>
+          <input id="home" placeholder="Ex: Real Madrid" />
         </div>
-      </header>
-
-      <section class="stats">
-        <div class="stat-box">
-          <span>Total matchs</span>
-          <strong id="statTotal">0</strong>
+        <div>
+          <label>Équipe extérieur</label>
+          <input id="away" placeholder="Ex: Sevilla" />
         </div>
-        <div class="stat-box">
-          <span>Score moyen</span>
-          <strong id="statAvg">0</strong>
-        </div>
-        <div class="stat-box">
-          <span>BTTS Oui</span>
-          <strong id="statBtts">0</strong>
-        </div>
-        <div class="stat-box">
-          <span>Indice fort</span>
-          <strong id="statStrong">0</strong>
-        </div>
-      </section>
+      </div>
+      <button id="analyzeBtn">Analyser le match</button>
+    </section>
 
-      <section class="content">
-        <section class="left-panel">
-          <div class="panel-header">
-            <h2>Matchs disponibles</h2>
-            <input type="text" id="searchInput" placeholder="Rechercher un match..." />
-          </div>
-
-          <div id="matchList" class="match-list"></div>
-        </section>
-
-        <aside class="right-panel">
-          <div class="form-card">
-            <h2>Ajouter un match</h2>
-
-            <input id="homeTeam" placeholder="Équipe / Joueur domicile" />
-            <input id="awayTeam" placeholder="Équipe / Joueur extérieur" />
-            <input id="finalScore" placeholder="Score final (ex: 2-1)" />
-            <input id="halfScore" placeholder="Score mi-temps / set 1 (ex: 1-0)" />
-            <input id="shots" placeholder="Tirs cadrés / stats optionnelles" />
-            <input id="corners" placeholder="Corners / stats optionnelles" />
-            <textarea id="notes" placeholder="Notes / description"></textarea>
-            <input id="supplierLink" placeholder="Lien source / match / capture" />
-            <input type="file" id="matchImage" accept="image/*" />
-
-            <div class="form-actions">
-              <button class="primary-btn" id="saveBtn">Enregistrer</button>
-              <button class="secondary-btn" id="clearBtn">Annuler</button>
-            </div>
-          </div>
-
-          <div class="form-card">
-            <h2>Importer données</h2>
-            <input type="file" id="importJson" accept=".json" />
-            <p class="hint">Importe un fichier JSON de matchs pour le sport actif.</p>
-          </div>
-        </aside>
-      </section>
-    </main>
-  </div>
+    <section class="panel result-panel">
+      <h3>Résultat intelligent</h3>
+      <div id="resultEmpty">Aucune analyse pour le moment.</div>
+      <div id="resultCard" class="hidden"></div>
+    </section>
+  </main>
 
   <script src="app.js"></script>
 </body>
