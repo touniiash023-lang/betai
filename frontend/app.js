@@ -7,8 +7,10 @@ let editingId = null;
 const pageTitle = document.getElementById("pageTitle");
 const pageSubtitle = document.getElementById("pageSubtitle");
 const matchesList = document.getElementById("matchesList");
+const topPredictions = document.getElementById("topPredictions");
 const searchInput = document.getElementById("searchInput");
 const sortSelect = document.getElementById("sortSelect");
+const statusFilter = document.getElementById("statusFilter");
 const matchForm = document.getElementById("matchForm");
 const cancelEditBtn = document.getElementById("cancelEditBtn");
 const formTitle = document.getElementById("formTitle");
@@ -20,7 +22,7 @@ const autofillBtn = document.getElementById("autofillBtn");
 const totalMatchesEl = document.getElementById("totalMatches");
 const avgConfidenceEl = document.getElementById("avgConfidence");
 const safeCountEl = document.getElementById("safeCount");
-const avgScoreEl = document.getElementById("avgScore");
+const upcomingCountEl = document.getElementById("upcomingCount");
 
 const sportNames = {
   football: "Football",
@@ -29,38 +31,48 @@ const sportNames = {
   table_tennis: "Tennis de table"
 };
 
-document.querySelectorAll(".nav-btn").forEach(btn => {
+document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     currentSport = btn.dataset.sport;
     updatePageHeader();
-    resetForm();
+    document.getElementById("sport").value = currentSport;
     render();
   });
 });
 
 searchInput.addEventListener("input", render);
 sortSelect.addEventListener("change", render);
+statusFilter.addEventListener("change", render);
 cancelEditBtn.addEventListener("click", resetForm);
 
 loadDemoBtn.addEventListener("click", async () => {
-  await fetch(`${API_BASE_URL}/seed-demo`, { method: "POST" });
-  await fetchMatches();
+  try {
+    await fetch(`${API_BASE_URL}/seed-demo`, { method: "POST" });
+    await refreshAll();
+  } catch (error) {
+    alert("Impossible de charger la démo.");
+  }
 });
 
 exportBtn.addEventListener("click", async () => {
-  const res = await fetch(`${API_BASE_URL}/matches/export`);
-  const data = await res.json();
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
+  try {
+    const res = await fetch(`${API_BASE_URL}/matches/export`);
+    const data = await res.json();
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "matches_export.json";
-  a.click();
-
-  URL.revokeObjectURL(url);
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "matches_export.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert("Impossible d'exporter le JSON.");
+  }
 });
 
 importFile.addEventListener("change", async (event) => {
@@ -77,8 +89,11 @@ importFile.addEventListener("change", async (event) => {
       body: JSON.stringify(parsed)
     });
 
-    if (!res.ok) throw new Error("Import impossible");
-    await fetchMatches();
+    if (!res.ok) {
+      throw new Error("Import failed");
+    }
+
+    await refreshAll();
     alert("Import JSON réussi");
   } catch (error) {
     alert("Fichier JSON invalide");
@@ -88,13 +103,15 @@ importFile.addEventListener("change", async (event) => {
 });
 
 autofillBtn.addEventListener("click", async () => {
-  const sport = document.getElementById("sport").value;
-  const status = document.getElementById("status").value;
-  const homeTeam = document.getElementById("homeTeam").value.trim();
-  const awayTeam = document.getElementById("awayTeam").value.trim();
-  const matchDate = document.getElementById("matchDate").value;
+  const payload = {
+    sport: document.getElementById("sport").value,
+    status: document.getElementById("status").value,
+    home_team: document.getElementById("homeTeam").value.trim(),
+    away_team: document.getElementById("awayTeam").value.trim(),
+    match_date: document.getElementById("matchDate").value || ""
+  };
 
-  if (!homeTeam || !awayTeam) {
+  if (!payload.home_team || !payload.away_team) {
     alert("Entrez d'abord les deux équipes / joueurs.");
     return;
   }
@@ -103,19 +120,16 @@ autofillBtn.addEventListener("click", async () => {
     const res = await fetch(`${API_BASE_URL}/autofill-match`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sport,
-        status,
-        home_team: homeTeam,
-        away_team: awayTeam,
-        match_date: matchDate
-      })
+      body: JSON.stringify(payload)
     });
 
-    if (!res.ok) throw new Error("Auto remplissage impossible");
+    if (!res.ok) {
+      throw new Error("Autofill failed");
+    }
 
     const data = await res.json();
 
+    document.getElementById("competition").value = data.competition || "";
     document.getElementById("matchDate").value = data.match_date || "";
     document.getElementById("homePossession").value = data.home_possession ?? 50;
     document.getElementById("awayPossession").value = data.away_possession ?? 50;
@@ -129,7 +143,7 @@ autofillBtn.addEventListener("click", async () => {
     document.getElementById("awayHistory").value = data.away_history ?? 50;
     document.getElementById("note").value = data.note || "";
 
-    if (status === "upcoming") {
+    if (payload.status === "upcoming") {
       document.getElementById("homeScore").value = 0;
       document.getElementById("awayScore").value = 0;
       document.getElementById("homeHalfScore").value = 0;
@@ -148,6 +162,7 @@ matchForm.addEventListener("submit", async (e) => {
   const payload = {
     sport: document.getElementById("sport").value,
     status: document.getElementById("status").value,
+    competition: document.getElementById("competition").value.trim(),
     home_team: document.getElementById("homeTeam").value.trim(),
     away_team: document.getElementById("awayTeam").value.trim(),
     home_score: Number(document.getElementById("homeScore").value || 0),
@@ -169,27 +184,33 @@ matchForm.addEventListener("submit", async (e) => {
     note: document.getElementById("note").value.trim()
   };
 
-  const url = editingId ? `${API_BASE_URL}/matches/${editingId}` : `${API_BASE_URL}/matches`;
+  const url = editingId
+    ? `${API_BASE_URL}/matches/${editingId}`
+    : `${API_BASE_URL}/matches`;
+
   const method = editingId ? "PUT" : "POST";
 
-  const res = await fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      throw new Error("Save failed");
+    }
+
+    await refreshAll();
+    resetForm();
+  } catch (error) {
     alert("Erreur lors de l'enregistrement");
-    return;
   }
-
-  await fetchMatches();
-  resetForm();
 });
 
 function updatePageHeader() {
   pageTitle.textContent = sportNames[currentSport];
-  pageSubtitle.textContent = "Pronostics intelligents avec mode à venir / terminé";
+  pageSubtitle.textContent = "Analyse sportive avancée et auto remplissage API";
 }
 
 function resetForm() {
@@ -218,15 +239,43 @@ function resetForm() {
 async function fetchMatches() {
   const res = await fetch(`${API_BASE_URL}/matches`);
   allMatches = await res.json();
+}
+
+async function fetchDashboard() {
+  const res = await fetch(`${API_BASE_URL}/dashboard`);
+  const data = await res.json();
+
+  totalMatchesEl.textContent = data.total_matches || 0;
+  avgConfidenceEl.textContent = `${data.avg_confidence || 0}%`;
+  safeCountEl.textContent = data.safe_count || 0;
+  upcomingCountEl.textContent = data.upcoming_count || 0;
+
+  topPredictions.innerHTML =
+    (data.top_predictions || []).map((match) => `
+      <div class="top-mini-card">
+        <h4>${escapeHtml(match.home_team)} vs ${escapeHtml(match.away_team)}</h4>
+        <p>${escapeHtml(match.match_date || "Date non précisée")}</p>
+        <p>Confiance: ${(match.analysis || {}).confidence || 0}%</p>
+        <p>Favori: ${escapeHtml((match.analysis || {}).winner || "-")}</p>
+      </div>
+    `).join("") || `<div class="empty-state">Aucune analyse disponible.</div>`;
+}
+
+async function refreshAll() {
+  await fetchMatches();
+  await fetchDashboard();
   render();
 }
 
 function getFilteredMatches() {
   const q = searchInput.value.trim().toLowerCase();
+  const sf = statusFilter.value;
 
-  let filtered = allMatches.filter(match => {
-    const text = `${match.home_team} ${match.away_team} ${match.note || ""}`.toLowerCase();
-    return match.sport === currentSport && (!q || text.includes(q));
+  let filtered = allMatches.filter((match) => {
+    const text = `${match.home_team} ${match.away_team} ${match.competition || ""} ${match.note || ""}`.toLowerCase();
+    const sameSport = match.sport === currentSport;
+    const statusOk = sf === "all" || match.status === sf;
+    return sameSport && statusOk && (!q || text.includes(q));
   });
 
   const sortValue = sortSelect.value;
@@ -237,73 +286,60 @@ function getFilteredMatches() {
     filtered.sort((a, b) => (b.analysis?.home_win_pct || 0) - (a.analysis?.home_win_pct || 0));
   } else if (sortValue === "awayWin") {
     filtered.sort((a, b) => (b.analysis?.away_win_pct || 0) - (a.analysis?.away_win_pct || 0));
-  } else if (sortValue === "risk") {
-    const riskOrder = { SAFE: 3, MEDIUM: 2, RISKY: 1 };
-    filtered.sort((a, b) => (riskOrder[b.analysis?.risk_badge] || 0) - (riskOrder[a.analysis?.risk_badge] || 0));
   } else {
-    filtered.sort((a, b) => {
-      const da = new Date(a.created_at || 0).getTime();
-      const db = new Date(b.created_at || 0).getTime();
-      return db - da;
-    });
+    filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }
 
   return filtered;
 }
 
-function renderStats(matches) {
-  totalMatchesEl.textContent = matches.length;
-
-  if (!matches.length) {
-    avgConfidenceEl.textContent = "0%";
-    safeCountEl.textContent = "0";
-    avgScoreEl.textContent = "0";
-    return;
-  }
-
-  const avgConfidence = matches.reduce((sum, m) => sum + (m.analysis?.confidence || 0), 0) / matches.length;
-  const avgScore = matches.reduce((sum, m) => sum + m.home_score + m.away_score, 0) / matches.length;
-  const safeCount = matches.filter(m => (m.analysis?.risk_badge || "") === "SAFE").length;
-
-  avgConfidenceEl.textContent = `${Math.round(avgConfidence)}%`;
-  safeCountEl.textContent = safeCount;
-  avgScoreEl.textContent = avgScore.toFixed(1);
-}
-
 function riskClass(risk) {
-  if (risk === "SAFE") return "risk-safe";
-  if (risk === "MEDIUM") return "risk-medium";
-  return "risk-risky";
-}
-
-function statusLabel(status) {
-  return status === "finished" ? "Terminé" : "À venir";
+  if (risk === "SAFE") return "chip safe";
+  if (risk === "MEDIUM") return "chip medium";
+  return "chip risky";
 }
 
 function render() {
   const matches = getFilteredMatches();
-  renderStats(matches);
 
   if (!matches.length) {
-    matchesList.innerHTML = `<div class="empty-state">Aucun match disponible pour ce sport.</div>`;
+    matchesList.innerHTML = `<div class="empty-state">Aucun match disponible pour ce filtre.</div>`;
     return;
   }
 
-  matchesList.innerHTML = matches.map(match => {
+  matchesList.innerHTML = matches.map((match) => {
     const a = match.analysis || {};
+
     const img = match.image_url
       ? `<img class="match-image" src="${escapeAttr(match.image_url)}" alt="match" />`
       : `<div class="match-image"></div>`;
 
-    const progressWidth = Math.max(5, Math.min(100, a.confidence || 0));
+    const competitionChip = match.competition
+      ? `<span class="chip">${escapeHtml(match.competition)}</span>`
+      : "";
+
+    const drawCard = match.sport === "football"
+      ? `<div class="percent-card"><span>Nul</span><strong>${a.draw_pct || 0}%</strong></div>`
+      : "";
+
+    const footballMarkets = match.sport === "football"
+      ? `
+        <div>BTTS : ${a.btts ? "Oui" : "Non"}</div>
+        <div>Over 2.5 : ${a.over_2_5 ? "Oui" : "Non"}</div>
+      `
+      : "";
 
     return `
       <div class="match-card">
         <div class="match-top">
           <div>
-            <div class="match-sport">${escapeHtml(sportNames[match.sport] || match.sport)}</div>
-            <div class="match-status">${escapeHtml(statusLabel(match.status))}</div>
-            <div class="risk-badge ${riskClass(a.risk_badge)}">${escapeHtml(a.risk_badge || "RISKY")}</div>
+            <div class="chips">
+              <span class="chip">${escapeHtml(sportNames[match.sport] || match.sport)}</span>
+              <span class="chip">${escapeHtml(match.status === "finished" ? "Terminé" : "À venir")}</span>
+              <span class="${riskClass(a.risk_badge)}">${escapeHtml(a.risk_badge || "RISKY")}</span>
+              ${competitionChip}
+            </div>
+
             <div class="match-title">${escapeHtml(match.home_team)} vs ${escapeHtml(match.away_team)}</div>
             <div class="score-box">
               <span>Score</span>
@@ -313,46 +349,36 @@ function render() {
             </div>
             <div class="match-date">${escapeHtml(match.match_date || "Date non précisée")}</div>
           </div>
+
           ${img}
         </div>
 
         <div class="percent-grid">
-          <div class="percent-card">
-            <span>Victoire domicile</span>
-            <strong>${a.home_win_pct || 0}%</strong>
-          </div>
-          <div class="percent-card">
-            <span>Nul</span>
-            <strong>${a.draw_pct || 0}%</strong>
-          </div>
-          <div class="percent-card">
-            <span>Victoire extérieur</span>
-            <strong>${a.away_win_pct || 0}%</strong>
-          </div>
+          <div class="percent-card"><span>Victoire domicile</span><strong>${a.home_win_pct || 0}%</strong></div>
+          ${drawCard}
+          <div class="percent-card"><span>Victoire extérieur</span><strong>${a.away_win_pct || 0}%</strong></div>
         </div>
 
         <div class="analysis-block">
           <div class="info-grid">
-            <div>Mi-temps / set 1 : ${match.home_half_score} - ${match.away_half_score}</div>
-            <div>Gagnant mi-temps : ${escapeHtml(a.half_winner || "-")}</div>
             <div>Gagnant final : ${escapeHtml(a.winner || "-")}</div>
+            <div>Gagnant mi-temps / set 1 : ${escapeHtml(a.half_winner || "-")}</div>
             <div>Score probable : ${escapeHtml(a.likely_score || "-")}</div>
-            <div>BTTS : ${a.btts ? "Oui" : "Non"}</div>
-            <div>Over 2.5 / total élevé : ${a.over_2_5 ? "Oui" : "Non"}</div>
-            <div>Tirs / stats : ${match.home_shots} - ${match.away_shots}</div>
-            <div>Corners / bonus : ${match.home_corners} - ${match.away_corners}</div>
+            <div>Confiance : ${a.confidence || 0}%</div>
+            ${footballMarkets}
             <div>Forme : ${match.home_form} - ${match.away_form}</div>
             <div>Historique : ${match.home_history} - ${match.away_history}</div>
+            <div>Possession : ${match.home_possession}% - ${match.away_possession}%</div>
+            <div>Tirs / stats : ${match.home_shots} - ${match.away_shots}</div>
           </div>
 
           <div class="tag-row">
-            <div class="tag">Confiance : ${a.confidence || 0}%</div>
             <div class="tag">Indice offensif : ${a.attack_index || 0}</div>
-            <div class="tag">Mode : ${match.status === "finished" ? "Analyse post-match" : "Pronostic pré-match"}</div>
+            <div class="tag">Mode : ${match.status === "finished" ? "Post-match" : "Pré-match"}</div>
           </div>
 
           <div class="progress">
-            <div class="progress-bar" style="width:${progressWidth}%"></div>
+            <div class="progress-bar" style="width:${Math.max(5, Math.min(100, a.confidence || 0))}%"></div>
           </div>
 
           <div class="tag-row">
@@ -374,14 +400,15 @@ function render() {
 }
 
 function editMatch(id) {
-  const match = allMatches.find(m => m.id === id);
+  const match = allMatches.find((m) => m.id === id);
   if (!match) return;
 
   editingId = id;
   formTitle.textContent = "Modifier un match";
 
   document.getElementById("sport").value = match.sport;
-  document.getElementById("status").value = match.status || "upcoming";
+  document.getElementById("status").value = match.status;
+  document.getElementById("competition").value = match.competition || "";
   document.getElementById("homeTeam").value = match.home_team;
   document.getElementById("awayTeam").value = match.away_team;
   document.getElementById("homeScore").value = match.home_score;
@@ -409,10 +436,16 @@ async function deleteMatch(id) {
   const ok = confirm("Supprimer ce match ?");
   if (!ok) return;
 
-  await fetch(`${API_BASE_URL}/matches/${id}`, { method: "DELETE" });
-  await fetchMatches();
+  try {
+    await fetch(`${API_BASE_URL}/matches/${id}`, { method: "DELETE" });
+    await refreshAll();
 
-  if (editingId === id) resetForm();
+    if (editingId === id) {
+      resetForm();
+    }
+  } catch (error) {
+    alert("Erreur lors de la suppression.");
+  }
 }
 
 function escapeHtml(text) {
@@ -433,4 +466,4 @@ window.deleteMatch = deleteMatch;
 
 updatePageHeader();
 resetForm();
-fetchMatches();
+refreshAll();

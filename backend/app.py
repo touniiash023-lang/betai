@@ -2,13 +2,21 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from uuid import uuid4
 from datetime import datetime
+import os
+import requests
 
 app = Flask(__name__)
 CORS(app)
 
 matches_db = []
 
+FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY", "").strip()
+FOOTBALL_BASE_URL = "https://api.football-data.org/v4"
 
+
+# -----------------------------
+# Helpers
+# -----------------------------
 def safe_int(value, default=0):
     try:
         return int(value)
@@ -31,9 +39,9 @@ def normalize_percentages(home, draw, away):
 
     if away_pct < 0:
         away_pct = 0
-        diff = 100 - home_pct - draw_pct
-        if diff > 0:
-            draw_pct += diff
+        total2 = home_pct + draw_pct
+        if total2 < 100:
+            draw_pct += 100 - total2
 
     return home_pct, draw_pct, away_pct
 
@@ -46,6 +54,332 @@ def get_risk_badge(confidence):
     return "RISKY"
 
 
+def now_iso():
+    return datetime.utcnow().isoformat()
+
+
+# -----------------------------
+# football-data.org helpers
+# -----------------------------
+def football_headers():
+    if not FOOTBALL_API_KEY:
+        return None
+    return {"X-Auth-Token": FOOTBALL_API_KEY}
+
+
+def football_api_get(path, params=None):
+    headers = football_headers()
+    if not headers:
+        return None
+
+    try:
+        response = requests.get(
+            f"{FOOTBALL_BASE_URL}{path}",
+            headers=headers,
+            params=params or {},
+            timeout=20,
+        )
+        if response.status_code != 200:
+            return None
+        return response.json()
+    except requests.RequestException:
+        return None
+
+
+def find_team_id_by_name(team_name):
+    data = football_api_get("/teams", params={"limit": 500})
+    if not data:
+        return None
+
+    teams = data.get("teams", [])
+    team_name_lower = team_name.strip().lower()
+
+    exact = None
+    partial = None
+
+    for team in teams:
+        name = (team.get("name") or "").lower()
+        short_name = (team.get("shortName") or "").lower()
+        tla = (team.get("tla") or "").lower()
+
+        if team_name_lower == name or team_name_lower == short_name or team_name_lower == tla:
+            exact = team
+            break
+
+        if team_name_lower in name or team_name_lower in short_name:
+            partial = team
+
+    found = exact or partial
+    return found.get("id") if found else None
+
+
+def fetch_team_matches(team_id, limit=8):
+    data = football_api_get(
+        f"/teams/{team_id}/matches",
+        params={"limit": limit, "status": "FINISHED"}
+    )
+    if not data:
+        return []
+    return data.get("matches", [])
+
+
+def team_form_score(matches, side_name):
+    if not matches:
+        return 50
+
+    points = 0
+    total = 0
+
+    for match in matches[:5]:
+        home = match.get("homeTeam", {}).get("name", "")
+        away = match.get("awayTeam", {}).get("name", "")
+        full_time = match.get("score", {}).get("fullTime", {})
+        hs = safe_int(full_time.get("home"), 0)
+        aw = safe_int(full_time.get("away"), 0)
+
+        if side_name.lower() == home.lower():
+            if hs > aw:
+                points += 3
+            elif hs == aw:
+                points += 1
+        elif side_name.lower() == away.lower():
+            if aw > hs:
+                points += 3
+            elif aw == hs:
+                points += 1
+
+        total += 3
+
+    if total == 0:
+        return 50
+
+    return clamp(round((points / total) * 100), 25, 95)
+
+
+def average_goals_scored(matches, side_name):
+    if not matches:
+        return 1.0
+
+    values = []
+    for match in matches[:5]:
+        home = match.get("homeTeam", {}).get("name", "")
+        away = match.get("awayTeam", {}).get("name", "")
+        full_time = match.get("score", {}).get("fullTime", {})
+        hs = safe_int(full_time.get("home"), 0)
+        aw = safe_int(full_time.get("away"), 0)
+
+        if side_name.lower() == home.lower():
+            values.append(hs)
+        elif side_name.lower() == away.lower():
+            values.append(aw)
+
+    if not values:
+        return 1.0
+
+    return sum(values) / len(values)
+
+
+def estimate_history_score(home_form, away_form):
+    home_history = clamp(round(home_form - 4), 30, 95)
+    away_history = clamp(round(away_form - 4), 30, 92)
+    return home_history, away_history
+
+
+def estimate_possession(home_form, away_form):
+    diff = home_form - away_form
+    home_possession = clamp(50 + round(diff / 2.5), 38, 67)
+    away_possession = 100 - home_possession
+    return home_possession, away_possession
+
+
+def estimate_shots_and_corners(sport, home_avg_goals, away_avg_goals, home_form, away_form):
+    if sport != "football":
+        return 0, 0, 0, 0
+
+    home_shots = clamp(round(4 + home_avg_goals * 2 + (home_form - away_form) / 12), 3, 10)
+    away_shots = clamp(round(3 + away_avg_goals * 2 - (home_form - away_form) / 18), 2, 8)
+    home_corners = clamp(round(3 + home_avg_goals * 1.5 + (home_form - away_form) / 20), 2, 9)
+    away_corners = clamp(round(2 + away_avg_goals * 1.3 - (home_form - away_form) / 25), 1, 7)
+    return home_shots, away_shots, home_corners, away_corners
+
+
+def fetch_real_football_matches(limit=20):
+    data = football_api_get("/matches")
+    if not data:
+        return []
+
+    real_matches = []
+    for match in data.get("matches", [])[:limit]:
+        full_time = (match.get("score") or {}).get("fullTime") or {}
+        utc_date = match.get("utcDate") or ""
+
+        item = {
+            "sport": "football",
+            "status": "finished" if match.get("status") == "FINISHED" else "upcoming",
+            "competition": (match.get("competition") or {}).get("name", ""),
+            "home_team": (match.get("homeTeam") or {}).get("name", ""),
+            "away_team": (match.get("awayTeam") or {}).get("name", ""),
+            "home_score": safe_int(full_time.get("home"), 0),
+            "away_score": safe_int(full_time.get("away"), 0),
+            "match_date": utc_date[:10] if utc_date else "",
+            "home_half_score": 0,
+            "away_half_score": 0,
+            "home_possession": 50,
+            "away_possession": 50,
+            "home_shots": 0,
+            "away_shots": 0,
+            "home_corners": 0,
+            "away_corners": 0,
+            "home_form": 50,
+            "away_form": 50,
+            "home_history": 50,
+            "away_history": 50,
+            "image_url": "",
+            "note": "Match réel importé depuis football-data.org",
+        }
+
+        autofill = smart_autofill({
+            "sport": "football",
+            "status": item["status"],
+            "home_team": item["home_team"],
+            "away_team": item["away_team"],
+            "match_date": item["match_date"],
+        })
+
+        item["competition"] = item["competition"] or autofill.get("competition", "")
+        item["home_possession"] = autofill.get("home_possession", 50)
+        item["away_possession"] = autofill.get("away_possession", 50)
+        item["home_shots"] = autofill.get("home_shots", 0)
+        item["away_shots"] = autofill.get("away_shots", 0)
+        item["home_corners"] = autofill.get("home_corners", 0)
+        item["away_corners"] = autofill.get("away_corners", 0)
+        item["home_form"] = autofill.get("home_form", 50)
+        item["away_form"] = autofill.get("away_form", 50)
+        item["home_history"] = autofill.get("home_history", 50)
+        item["away_history"] = autofill.get("away_history", 50)
+
+        real_matches.append(item)
+
+    return real_matches
+
+
+def smart_autofill(data):
+    sport = (data.get("sport") or "football").strip()
+    status = (data.get("status") or "upcoming").strip()
+    home_team = (data.get("home_team") or "").strip()
+    away_team = (data.get("away_team") or "").strip()
+    match_date = (data.get("match_date") or "").strip()
+
+    if sport != "football" or not FOOTBALL_API_KEY:
+        # fallback intelligent local pour sports hors football
+        base_home = 70 + (len(home_team) % 15)
+        base_away = 60 + (len(away_team) % 13)
+        home_form = clamp(base_home, 40, 94)
+        away_form = clamp(base_away, 35, 90)
+        home_history, away_history = estimate_history_score(home_form, away_form)
+        home_possession, away_possession = estimate_possession(home_form, away_form)
+
+        if sport == "football":
+            home_shots, away_shots, home_corners, away_corners = 6, 4, 5, 3
+        elif sport == "basketball":
+            home_shots, away_shots, home_corners, away_corners = 22, 19, 0, 0
+        elif sport == "tennis":
+            home_shots, away_shots, home_corners, away_corners = 10, 8, 0, 0
+        else:
+            home_shots, away_shots, home_corners, away_corners = 7, 6, 0, 0
+
+        note = (
+            f"Auto remplissage intelligent local : {home_team} {home_form}/100, "
+            f"{away_team} {away_form}/100."
+        )
+
+        return {
+            "sport": sport,
+            "status": status,
+            "home_team": home_team,
+            "away_team": away_team,
+            "match_date": match_date,
+            "competition": "",
+            "home_form": home_form,
+            "away_form": away_form,
+            "home_history": home_history,
+            "away_history": away_history,
+            "home_possession": home_possession,
+            "away_possession": away_possession,
+            "home_shots": home_shots,
+            "away_shots": away_shots,
+            "home_corners": home_corners,
+            "away_corners": away_corners,
+            "note": note,
+        }
+
+    home_team_id = find_team_id_by_name(home_team)
+    away_team_id = find_team_id_by_name(away_team)
+
+    if not home_team_id or not away_team_id:
+        return {
+            "sport": sport,
+            "status": status,
+            "home_team": home_team,
+            "away_team": away_team,
+            "match_date": match_date,
+            "competition": "",
+            "home_form": 72,
+            "away_form": 63,
+            "home_history": 68,
+            "away_history": 59,
+            "home_possession": 54,
+            "away_possession": 46,
+            "home_shots": 6,
+            "away_shots": 4,
+            "home_corners": 5,
+            "away_corners": 3,
+            "note": f"API active mais équipe non trouvée exactement. Estimation intelligente utilisée pour {home_team} vs {away_team}.",
+        }
+
+    home_matches = fetch_team_matches(home_team_id, limit=8)
+    away_matches = fetch_team_matches(away_team_id, limit=8)
+
+    home_form = team_form_score(home_matches, home_team)
+    away_form = team_form_score(away_matches, away_team)
+    home_history, away_history = estimate_history_score(home_form, away_form)
+    home_possession, away_possession = estimate_possession(home_form, away_form)
+    home_avg_goals = average_goals_scored(home_matches, home_team)
+    away_avg_goals = average_goals_scored(away_matches, away_team)
+    home_shots, away_shots, home_corners, away_corners = estimate_shots_and_corners(
+        sport, home_avg_goals, away_avg_goals, home_form, away_form
+    )
+
+    competition = "football-data.org"
+    note = (
+        f"Auto remplissage API : {home_team} forme {home_form}/100, "
+        f"{away_team} forme {away_form}/100. Estimations basées sur matchs récents."
+    )
+
+    return {
+        "sport": sport,
+        "status": status,
+        "home_team": home_team,
+        "away_team": away_team,
+        "match_date": match_date,
+        "competition": competition,
+        "home_form": home_form,
+        "away_form": away_form,
+        "home_history": home_history,
+        "away_history": away_history,
+        "home_possession": home_possession,
+        "away_possession": away_possession,
+        "home_shots": home_shots,
+        "away_shots": away_shots,
+        "home_corners": home_corners,
+        "away_corners": away_corners,
+        "note": note,
+    }
+
+
+# -----------------------------
+# Analysis
+# -----------------------------
 def analyze_finished_match(match):
     sport = match.get("sport", "football")
 
@@ -85,54 +419,36 @@ def analyze_finished_match(match):
     if sport == "football":
         score_weight = 12
         shots_weight = 3
-        corners_weight = 2
-        possession_weight = 0.35
-        form_weight = 0.45
-        history_weight = 0.30
+        bonus_weight = 2
         draw_base = 28
     elif sport == "basketball":
         score_weight = 1.3
         shots_weight = 1.8
-        corners_weight = 0.2
-        possession_weight = 0.12
-        form_weight = 0.50
-        history_weight = 0.24
+        bonus_weight = 0.2
         draw_base = 3
-    elif sport == "tennis":
-        score_weight = 18
-        shots_weight = 2.2
-        corners_weight = 0.0
-        possession_weight = 0.0
-        form_weight = 0.55
-        history_weight = 0.32
-        draw_base = 1
     else:
-        score_weight = 16
+        score_weight = 15
         shots_weight = 2.0
-        corners_weight = 0.0
-        possession_weight = 0.0
-        form_weight = 0.52
-        history_weight = 0.30
+        bonus_weight = 0.0
         draw_base = 1
 
     home_power = (
         home_score * score_weight
         + home_half * (score_weight * 0.6)
         + home_shots * shots_weight
-        + home_corners * corners_weight
-        + home_possession * possession_weight
-        + home_form * form_weight
-        + home_history * history_weight
+        + home_corners * bonus_weight
+        + home_possession * 0.35
+        + home_form * 0.45
+        + home_history * 0.30
     )
-
     away_power = (
         away_score * score_weight
         + away_half * (score_weight * 0.6)
         + away_shots * shots_weight
-        + away_corners * corners_weight
-        + away_possession * possession_weight
-        + away_form * form_weight
-        + away_history * history_weight
+        + away_corners * bonus_weight
+        + away_possession * 0.35
+        + away_form * 0.45
+        + away_history * 0.30
     )
 
     gap = abs(home_power - away_power)
@@ -140,47 +456,22 @@ def analyze_finished_match(match):
 
     home_raw = home_power + 8
     away_raw = away_power + 8
-    draw_factor = draw_base
+    draw_factor = draw_base + max(0, 18 - int(gap // 2))
 
-    if sport == "football":
-        draw_factor += max(0, 20 - int(gap // 2))
-        if abs(home_score - away_score) <= 1:
-            draw_factor += 10
-    else:
-        draw_factor += max(0, 6 - int(gap // 8))
-
-    home_win_pct, draw_pct, away_win_pct = normalize_percentages(
-        max(1, home_raw),
-        max(1, draw_factor),
-        max(1, away_raw)
-    )
-
-    if home_score > away_score and home_win_pct < away_win_pct:
-        home_win_pct, away_win_pct = away_win_pct, home_win_pct
-    elif away_score > home_score and away_win_pct < home_win_pct:
-        away_win_pct, home_win_pct = home_win_pct, away_win_pct
-
-    total_pct = home_win_pct + draw_pct + away_win_pct
-    if total_pct != 100:
-        away_win_pct += 100 - total_pct
-
-    attack_index = round((home_shots + away_shots + total_score + home_corners + away_corners) / 2)
+    home_win_pct, draw_pct, away_win_pct = normalize_percentages(home_raw, draw_factor, away_raw)
 
     if sport in ["tennis", "table_tennis"]:
         likely_score = f"{max(home_score, away_score)}-{min(home_score, away_score)}"
     else:
         likely_score = f"{home_score}-{away_score}"
 
+    attack_index = round((home_shots + away_shots + total_score + home_corners + away_corners) / 2)
+
     if winner == "Nul":
-        summary = "Match terminé très équilibré avec domination limitée des deux côtés."
+        summary = "Analyse post-match : rencontre équilibrée."
     else:
-        leader_side = "domicile" if winner == match.get("home_team") else "extérieur"
-        if confidence >= 80:
-            summary = f"Analyse post-match : nette supériorité du côté {leader_side}."
-        elif confidence >= 68:
-            summary = f"Analyse post-match : avantage modéré du côté {leader_side}."
-        else:
-            summary = f"Analyse post-match : rencontre ouverte avec léger avantage du côté {leader_side}."
+        side = "domicile" if winner == match.get("home_team") else "extérieur"
+        summary = f"Analyse post-match : avantage confirmé du côté {side}."
 
     return {
         "winner": winner,
@@ -212,78 +503,28 @@ def analyze_upcoming_match(match):
     home_history = clamp(safe_int(match.get("home_history"), 50), 0, 100)
     away_history = clamp(safe_int(match.get("away_history"), 50), 0, 100)
 
-    if sport == "football":
-        draw_base = 24
-        home_power = (
-            home_form * 0.30 +
-            home_history * 0.24 +
-            home_possession * 0.15 +
-            home_shots * 2.2 +
-            home_corners * 1.2 +
-            6
-        )
-        away_power = (
-            away_form * 0.30 +
-            away_history * 0.24 +
-            away_possession * 0.15 +
-            away_shots * 2.2 +
-            away_corners * 1.2
-        )
-    elif sport == "basketball":
-        draw_base = 2
-        home_power = (
-            home_form * 0.35 +
-            home_history * 0.22 +
-            home_possession * 0.08 +
-            home_shots * 2.5 +
-            4
-        )
-        away_power = (
-            away_form * 0.35 +
-            away_history * 0.22 +
-            away_possession * 0.08 +
-            away_shots * 2.5
-        )
-    elif sport == "tennis":
-        draw_base = 1
-        home_power = (
-            home_form * 0.40 +
-            home_history * 0.28 +
-            home_shots * 1.5 +
-            3
-        )
-        away_power = (
-            away_form * 0.40 +
-            away_history * 0.28 +
-            away_shots * 1.5
-        )
-    else:
-        draw_base = 1
-        home_power = (
-            home_form * 0.38 +
-            home_history * 0.27 +
-            home_shots * 1.4 +
-            3
-        )
-        away_power = (
-            away_form * 0.38 +
-            away_history * 0.27 +
-            away_shots * 1.4
-        )
+    home_power = (
+        home_form * 0.30 +
+        home_history * 0.24 +
+        home_possession * 0.15 +
+        home_shots * 2.2 +
+        home_corners * 1.2 +
+        6
+    )
+    away_power = (
+        away_form * 0.30 +
+        away_history * 0.24 +
+        away_possession * 0.15 +
+        away_shots * 2.2 +
+        away_corners * 1.2
+    )
 
     gap = abs(home_power - away_power)
     confidence = clamp(round(50 + gap * 1.1), 50, 92)
 
-    if sport == "football":
-        draw_factor = draw_base + max(8, 22 - int(gap))
-    else:
-        draw_factor = draw_base + max(1, 6 - int(gap // 4))
-
-    home_win_pct, draw_pct, away_win_pct = normalize_percentages(
-        max(1, home_power),
-        max(1, draw_factor),
-        max(1, away_power)
-    )
+    draw_base = 24 if sport == "football" else 3
+    draw_factor = draw_base + max(4, 18 - int(gap))
+    home_win_pct, draw_pct, away_win_pct = normalize_percentages(home_power, draw_factor, away_power)
 
     if home_power > away_power:
         winner = match.get("home_team", "Domicile")
@@ -295,8 +536,6 @@ def analyze_upcoming_match(match):
         winner = "Nul"
         half_winner = "Nul"
 
-    attack_index = round((home_shots + away_shots + home_corners + away_corners) / 2)
-
     if sport == "football":
         if winner == "Nul":
             likely_score = "1-1"
@@ -307,45 +546,22 @@ def analyze_upcoming_match(match):
         btts = likely_score in ["1-1", "2-1", "1-2", "2-2"]
         over_2_5 = likely_score in ["2-1", "1-2", "2-2", "3-1", "1-3"]
     elif sport == "basketball":
-        if winner == match.get("home_team"):
-            likely_score = "102-94"
-        elif winner == match.get("away_team"):
-            likely_score = "94-102"
-        else:
-            likely_score = "98-98"
+        likely_score = "102-96" if winner == match.get("home_team") else "96-102"
         btts = True
         over_2_5 = True
-    elif sport == "tennis":
-        if winner == "Nul":
-            likely_score = "1-1"
-        elif winner == match.get("home_team"):
-            likely_score = "2-1" if confidence < 78 else "2-0"
-        else:
-            likely_score = "1-2" if confidence < 78 else "0-2"
-        btts = False
-        over_2_5 = False
     else:
-        if winner == "Nul":
-            likely_score = "2-2"
-        elif winner == match.get("home_team"):
-            likely_score = "3-1"
-        else:
-            likely_score = "1-3"
+        likely_score = "2-0" if winner == match.get("home_team") else "0-2"
         btts = False
         over_2_5 = False
 
+    attack_index = round((home_shots + away_shots + home_corners + away_corners) / 2)
     risk_badge = get_risk_badge(confidence)
 
     if winner == "Nul":
-        summary = "Pronostic pré-match équilibré avec risque partagé entre les deux côtés."
+        summary = "Pronostic pré-match équilibré."
     else:
-        leader_side = "domicile" if winner == match.get("home_team") else "extérieur"
-        if risk_badge == "SAFE":
-            summary = f"Pronostic pré-match solide avec avantage net du côté {leader_side}."
-        elif risk_badge == "MEDIUM":
-            summary = f"Pronostic pré-match correct avec avantage modéré du côté {leader_side}."
-        else:
-            summary = f"Pronostic pré-match plus risqué avec léger avantage du côté {leader_side}."
+        side = "domicile" if winner == match.get("home_team") else "extérieur"
+        summary = f"Pronostic pré-match avec avantage {side}."
 
     return {
         "winner": winner,
@@ -364,17 +580,18 @@ def analyze_upcoming_match(match):
 
 
 def analyze_match(match):
-    status = match.get("status", "upcoming")
-    if status == "finished":
-        return analyze_finished_match(match)
-    return analyze_upcoming_match(match)
+    return analyze_finished_match(match) if match.get("status") == "finished" else analyze_upcoming_match(match)
 
 
+# -----------------------------
+# Normalization
+# -----------------------------
 def normalize_match(data, existing_id=None, created_at=None):
     match = {
         "id": existing_id or str(uuid4()),
         "sport": data.get("sport", "football"),
         "status": data.get("status", "upcoming"),
+        "competition": (data.get("competition") or "").strip(),
         "home_team": (data.get("home_team") or "").strip(),
         "away_team": (data.get("away_team") or "").strip(),
         "home_score": safe_int(data.get("home_score")),
@@ -394,95 +611,21 @@ def normalize_match(data, existing_id=None, created_at=None):
         "away_history": clamp(safe_int(data.get("away_history"), 50), 0, 100),
         "image_url": (data.get("image_url") or "").strip(),
         "note": (data.get("note") or "").strip(),
-        "created_at": created_at or datetime.utcnow().isoformat()
+        "created_at": created_at or now_iso(),
     }
     match["analysis"] = analyze_match(match)
     return match
 
 
-def smart_autofill(data):
-    sport = (data.get("sport") or "football").strip()
-    status = (data.get("status") or "upcoming").strip()
-    home_team = (data.get("home_team") or "").strip()
-    away_team = (data.get("away_team") or "").strip()
-    match_date = (data.get("match_date") or "").strip()
-
-    base_home_strength = 70 + (len(home_team) % 18)
-    base_away_strength = 58 + (len(away_team) % 16)
-
-    if any(name in home_team.lower() for name in ["real", "city", "psg", "barcelona", "lakers", "djokovic"]):
-        base_home_strength += 10
-    if any(name in away_team.lower() for name in ["real", "city", "psg", "barcelona", "celtics", "medvedev"]):
-        base_away_strength += 8
-
-    home_form = clamp(base_home_strength, 45, 95)
-    away_form = clamp(base_away_strength, 40, 92)
-
-    home_history = clamp(home_form - 4, 40, 95)
-    away_history = clamp(away_form - 5, 35, 92)
-
-    strength_gap = home_form - away_form
-
-    if sport == "football":
-        home_possession = clamp(52 + strength_gap // 2, 38, 67)
-        away_possession = 100 - home_possession
-        home_shots = clamp(5 + strength_gap // 6, 3, 10)
-        away_shots = clamp(4 - strength_gap // 9, 2, 8)
-        home_corners = clamp(4 + strength_gap // 7, 2, 9)
-        away_corners = clamp(3 - strength_gap // 12, 1, 7)
-    elif sport == "basketball":
-        home_possession = 50
-        away_possession = 50
-        home_shots = clamp(18 + strength_gap // 3, 14, 32)
-        away_shots = clamp(17 - strength_gap // 4, 12, 30)
-        home_corners = 0
-        away_corners = 0
-    elif sport == "tennis":
-        home_possession = 50
-        away_possession = 50
-        home_shots = clamp(9 + strength_gap // 5, 6, 15)
-        away_shots = clamp(8 - strength_gap // 8, 5, 13)
-        home_corners = 0
-        away_corners = 0
-    else:
-        home_possession = 50
-        away_possession = 50
-        home_shots = clamp(7 + strength_gap // 6, 4, 12)
-        away_shots = clamp(6 - strength_gap // 8, 3, 10)
-        home_corners = 0
-        away_corners = 0
-
-    note = (
-        f"Remplissage automatique intelligent : {home_team} affiche une forme estimée de {home_form}/100 "
-        f"contre {away_form}/100 pour {away_team}. Les statistiques ont été estimées à partir d'un profil "
-        f"pré-match pour un usage d'analyse {'post-match' if status == 'finished' else 'pré-match'}."
-    )
-
-    return {
-        "sport": sport,
-        "status": status,
-        "home_team": home_team,
-        "away_team": away_team,
-        "match_date": match_date,
-        "home_form": home_form,
-        "away_form": away_form,
-        "home_history": home_history,
-        "away_history": away_history,
-        "home_possession": home_possession,
-        "away_possession": away_possession,
-        "home_shots": home_shots,
-        "away_shots": away_shots,
-        "home_corners": home_corners,
-        "away_corners": away_corners,
-        "note": note
-    }
-
-
+# -----------------------------
+# Routes
+# -----------------------------
 @app.route("/")
 def home():
     return jsonify({
-        "message": "BetAI Premium V3 API running",
-        "status": "ok"
+        "message": "BetAI V5 Analytics API",
+        "status": "ok",
+        "football_api_enabled": bool(FOOTBALL_API_KEY)
     })
 
 
@@ -504,11 +647,7 @@ def update_match(match_id):
     data = request.get_json(force=True)
     for index, existing in enumerate(matches_db):
         if existing["id"] == match_id:
-            updated = normalize_match(
-                data,
-                existing_id=match_id,
-                created_at=existing.get("created_at")
-            )
+            updated = normalize_match(data, existing_id=match_id, created_at=existing.get("created_at"))
             matches_db[index] = updated
             return jsonify(updated)
     return jsonify({"error": "Match introuvable"}), 404
@@ -540,12 +679,7 @@ def import_matches():
     imported = []
     for item in data:
         if isinstance(item, dict):
-            imported.append(
-                normalize_match(
-                    item,
-                    created_at=item.get("created_at")
-                )
-            )
+            imported.append(normalize_match(item, created_at=item.get("created_at")))
 
     matches_db = imported
     return jsonify({"success": True, "count": len(matches_db)})
@@ -554,7 +688,6 @@ def import_matches():
 @app.route("/autofill-match", methods=["POST"])
 def autofill_match():
     data = request.get_json(force=True)
-
     home_team = (data.get("home_team") or "").strip()
     away_team = (data.get("away_team") or "").strip()
 
@@ -564,16 +697,85 @@ def autofill_match():
     return jsonify(smart_autofill(data))
 
 
+@app.route("/real-matches/football", methods=["GET"])
+def real_football_matches():
+    limit = safe_int(request.args.get("limit"), 20)
+    limit = clamp(limit, 1, 50)
+    data = fetch_real_football_matches(limit=limit)
+
+    if not data:
+        return jsonify({
+            "success": False,
+            "error": "Impossible de récupérer les matchs réels football"
+        }), 400
+
+    return jsonify({
+        "success": True,
+        "count": len(data),
+        "matches": data
+    })
+
+
+@app.route("/real-matches/football/import", methods=["POST"])
+def import_real_football_matches():
+    global matches_db
+
+    limit = safe_int(request.args.get("limit"), 20)
+    limit = clamp(limit, 1, 50)
+
+    data = fetch_real_football_matches(limit=limit)
+    if not data:
+        return jsonify({
+            "success": False,
+            "error": "Impossible de récupérer les matchs réels football"
+        }), 400
+
+    normalized = [normalize_match(item) for item in data]
+    matches_db = normalized + matches_db
+
+    return jsonify({
+        "success": True,
+        "count": len(normalized),
+        "total": len(matches_db)
+    })
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    upcoming = [m for m in matches_db if m.get("status") == "upcoming"]
+    finished = [m for m in matches_db if m.get("status") == "finished"]
+    safe = [m for m in matches_db if (m.get("analysis") or {}).get("risk_badge") == "SAFE"]
+
+    avg_conf = 0
+    if matches_db:
+        avg_conf = round(sum((m.get("analysis") or {}).get("confidence", 0) for m in matches_db) / len(matches_db))
+
+    top_predictions = sorted(
+        upcoming,
+        key=lambda m: (m.get("analysis") or {}).get("confidence", 0),
+        reverse=True,
+    )[:5]
+
+    return jsonify({
+        "total_matches": len(matches_db),
+        "upcoming_count": len(upcoming),
+        "finished_count": len(finished),
+        "safe_count": len(safe),
+        "avg_confidence": avg_conf,
+        "top_predictions": top_predictions,
+    })
+
+
 @app.route("/seed-demo", methods=["POST"])
 def seed_demo():
     global matches_db
-
     demo = [
         {
             "sport": "football",
             "status": "upcoming",
+            "competition": "LaLiga",
             "home_team": "Real Madrid",
-            "away_team": "Séville",
+            "away_team": "Sevilla FC",
             "home_score": 0,
             "away_score": 0,
             "match_date": "2026-04-12",
@@ -589,83 +791,36 @@ def seed_demo():
             "away_form": 61,
             "home_history": 90,
             "away_history": 58,
-            "image_url": "",
-            "note": "Pronostic pré-match avec avantage domicile."
+            "note": "Pronostic pré-match avec avantage domicile.",
         },
         {
             "sport": "football",
             "status": "finished",
+            "competition": "Ligue 1",
             "home_team": "PSG",
             "away_team": "Lyon",
             "home_score": 2,
-            "away_score": 2,
+            "away_score": 1,
             "match_date": "2026-04-06",
             "home_half_score": 1,
-            "away_half_score": 1,
-            "home_possession": 54,
-            "away_possession": 46,
+            "away_half_score": 0,
+            "home_possession": 56,
+            "away_possession": 44,
             "home_shots": 6,
-            "away_shots": 5,
-            "home_corners": 4,
+            "away_shots": 4,
+            "home_corners": 5,
             "away_corners": 3,
-            "home_form": 82,
-            "away_form": 76,
-            "home_history": 85,
-            "away_history": 71,
-            "image_url": "",
-            "note": "Affiche ouverte entre deux équipes capables de marquer."
-        },
-        {
-            "sport": "basketball",
-            "status": "upcoming",
-            "home_team": "Lakers",
-            "away_team": "Celtics",
-            "home_score": 0,
-            "away_score": 0,
-            "match_date": "2026-04-11",
-            "home_half_score": 0,
-            "away_half_score": 0,
-            "home_possession": 50,
-            "away_possession": 50,
-            "home_shots": 24,
-            "away_shots": 20,
-            "home_corners": 0,
-            "away_corners": 0,
             "home_form": 84,
-            "away_form": 79,
-            "home_history": 78,
-            "away_history": 77,
-            "image_url": "",
-            "note": "Léger avantage statistique domicile."
+            "away_form": 72,
+            "home_history": 80,
+            "away_history": 67,
+            "note": "Analyse post-match du favori.",
         },
-        {
-            "sport": "tennis",
-            "status": "upcoming",
-            "home_team": "Djokovic",
-            "away_team": "Medvedev",
-            "home_score": 0,
-            "away_score": 0,
-            "match_date": "2026-04-10",
-            "home_half_score": 0,
-            "away_half_score": 0,
-            "home_possession": 50,
-            "away_possession": 50,
-            "home_shots": 12,
-            "away_shots": 10,
-            "home_corners": 0,
-            "away_corners": 0,
-            "home_form": 91,
-            "away_form": 84,
-            "home_history": 93,
-            "away_history": 80,
-            "image_url": "",
-            "note": "Confrontation de haut niveau, avantage léger au favori."
-        }
     ]
-
     matches_db = [normalize_match(item) for item in demo]
     return jsonify({"success": True, "count": len(matches_db)})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)

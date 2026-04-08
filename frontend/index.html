@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BetAI Premium V3</title>
+  <meta
+    name="description"
+    content="BetAI V5 Analytics Pro - plateforme multi-sport de prédiction et d'analyse pour football, basket, tennis et tennis de table."
+  />
+  <title>BetAI V5 Analytics Pro</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,23 +17,23 @@
         <div class="brand">
           <div class="brand-logo">BA</div>
           <div>
-            <h1>BetAI Premium</h1>
-            <p>V3 Smart Analytics</p>
+            <h1>BetAI V5</h1>
+            <p>Analytics Pro</p>
           </div>
         </div>
 
-        <nav class="sidebar-nav">
-          <button class="nav-btn active" data-sport="football">Football</button>
-          <button class="nav-btn" data-sport="basketball">Basket</button>
-          <button class="nav-btn" data-sport="tennis">Tennis</button>
-          <button class="nav-btn" data-sport="table_tennis">Tennis de table</button>
+        <nav class="sidebar-nav" aria-label="Navigation sports">
+          <button class="nav-btn active" data-sport="football" type="button">Football</button>
+          <button class="nav-btn" data-sport="basketball" type="button">Basket</button>
+          <button class="nav-btn" data-sport="tennis" type="button">Tennis</button>
+          <button class="nav-btn" data-sport="table_tennis" type="button">Tennis de table</button>
         </nav>
       </div>
 
       <div class="sidebar-footer">
         <div class="footer-box">
-          <strong>BetAI V3</strong>
-          <p>Pré-match + post-match + auto remplissage intelligent</p>
+          <strong>Plateforme multi-sport</strong>
+          <p>Analyse avancée, auto remplissage, import/export JSON et dashboard intelligent.</p>
         </div>
       </div>
     </aside>
@@ -38,12 +42,12 @@
       <header class="topbar">
         <div>
           <h2 id="pageTitle">Football</h2>
-          <p id="pageSubtitle">Pronostics intelligents avec mode à venir / terminé</p>
+          <p id="pageSubtitle">Analyse sportive avancée et auto remplissage API</p>
         </div>
 
         <div class="topbar-actions">
-          <button id="loadDemoBtn" class="secondary-btn">Charger démo</button>
-          <button id="exportBtn" class="secondary-btn">Exporter JSON</button>
+          <button id="loadDemoBtn" class="secondary-btn" type="button">Charger démo</button>
+          <button id="exportBtn" class="secondary-btn" type="button">Exporter JSON</button>
           <label class="file-label">
             Importer JSON
             <input type="file" id="importFile" accept=".json" hidden />
@@ -51,36 +55,57 @@
         </div>
       </header>
 
-      <section class="hero-grid">
+      <section class="hero-grid" id="heroGrid" aria-label="Indicateurs principaux">
         <div class="hero-card hero-primary">
           <span class="hero-label">Total matchs</span>
           <strong id="totalMatches">0</strong>
         </div>
+
         <div class="hero-card">
           <span class="hero-label">Confiance moyenne</span>
           <strong id="avgConfidence">0%</strong>
         </div>
+
         <div class="hero-card">
           <span class="hero-label">Pronostics SAFE</span>
           <strong id="safeCount">0</strong>
         </div>
+
         <div class="hero-card">
-          <span class="hero-label">Score moyen</span>
-          <strong id="avgScore">0</strong>
+          <span class="hero-label">Matchs à venir</span>
+          <strong id="upcomingCount">0</strong>
         </div>
       </section>
 
-      <section class="toolbar">
-        <div class="toolbar-left">
-          <input type="text" id="searchInput" placeholder="Rechercher un match..." />
+      <section class="dashboard-panel panel" aria-labelledby="top-analyses-title">
+        <div class="panel-head panel-head-between">
+          <h3 id="top-analyses-title">Top analyses</h3>
+          <span class="mini-label">Top 5</span>
         </div>
-        <div class="toolbar-right">
+        <div id="topPredictions" class="top-predictions"></div>
+      </section>
+
+      <section class="toolbar" aria-label="Recherche et tri">
+        <div class="toolbar-left">
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="Rechercher un match, une équipe, une compétition..."
+          />
+        </div>
+
+        <div class="toolbar-right two-tools">
+          <select id="statusFilter">
+            <option value="all">Tous les statuts</option>
+            <option value="upcoming">À venir</option>
+            <option value="finished">Terminés</option>
+          </select>
+
           <select id="sortSelect">
             <option value="latest">Trier : plus récent</option>
             <option value="confidence">Trier : confiance</option>
             <option value="homeWin">Trier : % domicile</option>
             <option value="awayWin">Trier : % extérieur</option>
-            <option value="risk">Trier : niveau risque</option>
           </select>
         </div>
       </section>
@@ -88,7 +113,7 @@
       <section class="content-grid">
         <div class="panel">
           <div class="panel-head">
-            <h3>Matchs et pronostics</h3>
+            <h3>Matchs et analyses</h3>
           </div>
           <div id="matchesList" class="matches-list"></div>
         </div>
@@ -100,11 +125,9 @@
           </div>
 
           <form id="matchForm" class="match-form">
-            <input type="hidden" id="matchId" />
-
             <div class="form-row">
-              <label>Sport</label>
-              <select id="sport">
+              <label for="sport">Sport</label>
+              <select id="sport" name="sport">
                 <option value="football">Football</option>
                 <option value="basketball">Basket</option>
                 <option value="tennis">Tennis</option>
@@ -112,107 +135,129 @@
               </select>
             </div>
 
-            <div class="form-row">
-              <label>Statut du match</label>
-              <select id="status">
-                <option value="upcoming">À venir</option>
-                <option value="finished">Terminé</option>
-              </select>
+            <div class="form-row three-cols">
+              <div>
+                <label for="status">Statut</label>
+                <select id="status" name="status">
+                  <option value="upcoming">À venir</option>
+                  <option value="finished">Terminé</option>
+                </select>
+              </div>
+
+              <div>
+                <label for="matchDate">Date</label>
+                <input type="date" id="matchDate" name="matchDate" />
+              </div>
+
+              <div>
+                <label for="competition">Compétition</label>
+                <input
+                  type="text"
+                  id="competition"
+                  name="competition"
+                  placeholder="LaLiga, Ligue 1, NBA, ATP..."
+                />
+              </div>
             </div>
 
             <div class="form-row">
-              <label>Équipe / joueur domicile</label>
-              <input type="text" id="homeTeam" required />
+              <label for="homeTeam">Équipe / joueur domicile</label>
+              <input type="text" id="homeTeam" name="homeTeam" required />
             </div>
 
             <div class="form-row">
-              <label>Équipe / joueur extérieur</label>
-              <input type="text" id="awayTeam" required />
+              <label for="awayTeam">Équipe / joueur extérieur</label>
+              <input type="text" id="awayTeam" name="awayTeam" required />
             </div>
 
             <div class="form-row three-cols">
               <div>
-                <label>Score domicile</label>
-                <input type="number" id="homeScore" min="0" value="0" required />
+                <label for="homeScore">Score domicile</label>
+                <input type="number" id="homeScore" name="homeScore" min="0" value="0" />
               </div>
-              <div>
-                <label>Score extérieur</label>
-                <input type="number" id="awayScore" min="0" value="0" required />
-              </div>
-              <div>
-                <label>Date</label>
-                <input type="date" id="matchDate" />
-              </div>
-            </div>
 
-            <div class="form-row three-cols">
               <div>
-                <label>Mi-temps / set 1 domicile</label>
-                <input type="number" id="homeHalfScore" min="0" value="0" />
+                <label for="awayScore">Score extérieur</label>
+                <input type="number" id="awayScore" name="awayScore" min="0" value="0" />
               </div>
-              <div>
-                <label>Mi-temps / set 1 extérieur</label>
-                <input type="number" id="awayHalfScore" min="0" value="0" />
-              </div>
-              <div>
-                <label>Possession domicile (%)</label>
-                <input type="number" id="homePossession" min="0" max="100" value="50" />
-              </div>
-            </div>
 
-            <div class="form-row three-cols">
               <div>
-                <label>Possession extérieur (%)</label>
-                <input type="number" id="awayPossession" min="0" max="100" value="50" />
-              </div>
-              <div>
-                <label>Tirs / stats fortes domicile</label>
-                <input type="number" id="homeShots" min="0" value="0" />
-              </div>
-              <div>
-                <label>Tirs / stats fortes extérieur</label>
-                <input type="number" id="awayShots" min="0" value="0" />
+                <label for="homeHalfScore">Mi-temps / set 1 dom.</label>
+                <input type="number" id="homeHalfScore" name="homeHalfScore" min="0" value="0" />
               </div>
             </div>
 
             <div class="form-row three-cols">
               <div>
-                <label>Corners / bonus domicile</label>
-                <input type="number" id="homeCorners" min="0" value="0" />
+                <label for="awayHalfScore">Mi-temps / set 1 ext.</label>
+                <input type="number" id="awayHalfScore" name="awayHalfScore" min="0" value="0" />
               </div>
+
               <div>
-                <label>Corners / bonus extérieur</label>
-                <input type="number" id="awayCorners" min="0" value="0" />
+                <label for="homePossession">Possession dom. (%)</label>
+                <input type="number" id="homePossession" name="homePossession" min="0" max="100" value="50" />
               </div>
+
               <div>
-                <label>Forme domicile (0-100)</label>
-                <input type="number" id="homeForm" min="0" max="100" value="50" />
+                <label for="awayPossession">Possession ext. (%)</label>
+                <input type="number" id="awayPossession" name="awayPossession" min="0" max="100" value="50" />
               </div>
             </div>
 
             <div class="form-row three-cols">
               <div>
-                <label>Forme extérieur (0-100)</label>
-                <input type="number" id="awayForm" min="0" max="100" value="50" />
+                <label for="homeShots">Tirs / stats dom.</label>
+                <input type="number" id="homeShots" name="homeShots" min="0" value="0" />
               </div>
+
               <div>
-                <label>Historique domicile (0-100)</label>
-                <input type="number" id="homeHistory" min="0" max="100" value="50" />
+                <label for="awayShots">Tirs / stats ext.</label>
+                <input type="number" id="awayShots" name="awayShots" min="0" value="0" />
               </div>
+
               <div>
-                <label>Historique extérieur (0-100)</label>
-                <input type="number" id="awayHistory" min="0" max="100" value="50" />
+                <label for="homeCorners">Corners dom.</label>
+                <input type="number" id="homeCorners" name="homeCorners" min="0" value="0" />
+              </div>
+            </div>
+
+            <div class="form-row three-cols">
+              <div>
+                <label for="awayCorners">Corners ext.</label>
+                <input type="number" id="awayCorners" name="awayCorners" min="0" value="0" />
+              </div>
+
+              <div>
+                <label for="homeForm">Forme dom. (0-100)</label>
+                <input type="number" id="homeForm" name="homeForm" min="0" max="100" value="50" />
+              </div>
+
+              <div>
+                <label for="awayForm">Forme ext. (0-100)</label>
+                <input type="number" id="awayForm" name="awayForm" min="0" max="100" value="50" />
+              </div>
+            </div>
+
+            <div class="form-row two-cols">
+              <div>
+                <label for="homeHistory">Historique dom. (0-100)</label>
+                <input type="number" id="homeHistory" name="homeHistory" min="0" max="100" value="50" />
+              </div>
+
+              <div>
+                <label for="awayHistory">Historique ext. (0-100)</label>
+                <input type="number" id="awayHistory" name="awayHistory" min="0" max="100" value="50" />
               </div>
             </div>
 
             <div class="form-row">
-              <label>Image URL</label>
-              <input type="text" id="imageUrl" placeholder="https://..." />
+              <label for="imageUrl">Image URL</label>
+              <input type="text" id="imageUrl" name="imageUrl" placeholder="https://..." />
             </div>
 
             <div class="form-row">
-              <label>Note / résumé</label>
-              <textarea id="note" rows="4" placeholder="Résumé automatique ou manuel..."></textarea>
+              <label for="note">Note / résumé</label>
+              <textarea id="note" name="note" rows="4" placeholder="Résumé du match, tendance, contexte..."></textarea>
             </div>
 
             <div class="form-actions">
