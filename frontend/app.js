@@ -3,6 +3,7 @@ const API_BASE_URL = "https://betai-backend-dovc.onrender.com";
 let allMatches = [];
 let currentSport = "football";
 let editingId = null;
+let uploadedImageUrl = "";
 
 const pageTitle = document.getElementById("pageTitle");
 const pageSubtitle = document.getElementById("pageSubtitle");
@@ -18,6 +19,9 @@ const loadDemoBtn = document.getElementById("loadDemoBtn");
 const exportBtn = document.getElementById("exportBtn");
 const importFile = document.getElementById("importFile");
 const autofillBtn = document.getElementById("autofillBtn");
+const analyzeBtn = document.getElementById("analyzeBtn");
+const imageFileInput = document.getElementById("imageFile");
+const imagePreview = document.getElementById("imagePreview");
 
 const totalMatchesEl = document.getElementById("totalMatches");
 const avgConfidenceEl = document.getElementById("avgConfidence");
@@ -48,31 +52,20 @@ statusFilter.addEventListener("change", render);
 cancelEditBtn.addEventListener("click", resetForm);
 
 loadDemoBtn.addEventListener("click", async () => {
-  try {
-    await fetch(`${API_BASE_URL}/seed-demo`, { method: "POST" });
-    await refreshAll();
-  } catch (error) {
-    alert("Impossible de charger la démo.");
-  }
+  await fetch(`${API_BASE_URL}/seed-demo`, { method: "POST" });
+  await refreshAll();
 });
 
 exportBtn.addEventListener("click", async () => {
-  try {
-    const res = await fetch(`${API_BASE_URL}/matches/export`);
-    const data = await res.json();
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json"
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "matches_export.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch (error) {
-    alert("Impossible d'exporter le JSON.");
-  }
+  const res = await fetch(`${API_BASE_URL}/matches/export`);
+  const data = await res.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "matches_export.json";
+  a.click();
+  URL.revokeObjectURL(url);
 });
 
 importFile.addEventListener("change", async (event) => {
@@ -89,17 +82,44 @@ importFile.addEventListener("change", async (event) => {
       body: JSON.stringify(parsed)
     });
 
-    if (!res.ok) {
-      throw new Error("Import failed");
-    }
+    if (!res.ok) throw new Error("Import failed");
 
     await refreshAll();
     alert("Import JSON réussi");
-  } catch (error) {
+  } catch {
     alert("Fichier JSON invalide");
   }
 
   event.target.value = "";
+});
+
+imageFileInput.addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/matches/import-image`, {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Erreur import image");
+      return;
+    }
+
+    uploadedImageUrl = `${API_BASE_URL}${data.image.url}`;
+    imagePreview.innerHTML = `<img src="${escapeAttr(uploadedImageUrl)}" alt="preview" />`;
+    document.getElementById("imageUrl").value = uploadedImageUrl;
+    alert("Image importée avec succès.");
+  } catch (error) {
+    alert("Impossible d'importer l'image.");
+  }
 });
 
 autofillBtn.addEventListener("click", async () => {
@@ -117,7 +137,7 @@ autofillBtn.addEventListener("click", async () => {
   }
 
   try {
-    const res = await fetch(`${API_BASE_URL}/autofill-match`, {
+    const res = await fetch(`${API_BASE_URL}/matches/autofill`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -126,7 +146,7 @@ autofillBtn.addEventListener("click", async () => {
     const data = await res.json();
 
     if (!res.ok) {
-      alert(data.error || "Erreur backend sur auto remplissage.");
+      alert(data.error || "Erreur auto remplissage.");
       return;
     }
 
@@ -144,23 +164,66 @@ autofillBtn.addEventListener("click", async () => {
     document.getElementById("awayHistory").value = data.away_history ?? 50;
     document.getElementById("note").value = data.note || "";
 
-    if (payload.status === "upcoming") {
-      document.getElementById("homeScore").value = 0;
-      document.getElementById("awayScore").value = 0;
-      document.getElementById("homeHalfScore").value = 0;
-      document.getElementById("awayHalfScore").value = 0;
-    }
-
     alert("Champs remplis automatiquement.");
   } catch (error) {
     alert("Impossible de récupérer les statistiques automatiques : " + error.message);
   }
 });
 
+analyzeBtn.addEventListener("click", async () => {
+  const payload = collectFormData();
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/matches/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Erreur analyse.");
+      return;
+    }
+
+    const analysis = data.match.analysis || {};
+    alert(
+      `Analyse terminée\n\nFavori: ${analysis.winner || "-"}\nScore probable: ${analysis.likely_score || "-"}\nConfiance: ${analysis.confidence || 0}%`
+    );
+  } catch (error) {
+    alert("Impossible de lancer l'analyse.");
+  }
+});
+
 matchForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  const payload = {
+  const payload = collectFormData();
+
+  const url = editingId
+    ? `${API_BASE_URL}/matches/${editingId}`
+    : `${API_BASE_URL}/matches`;
+
+  const method = editingId ? "PUT" : "POST";
+
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    alert("Erreur lors de l'enregistrement");
+    return;
+  }
+
+  await refreshAll();
+  resetForm();
+});
+
+function collectFormData() {
+  return {
     sport: document.getElementById("sport").value,
     status: document.getElementById("status").value,
     competition: document.getElementById("competition").value.trim(),
@@ -181,41 +244,19 @@ matchForm.addEventListener("submit", async (e) => {
     away_form: Number(document.getElementById("awayForm").value || 50),
     home_history: Number(document.getElementById("homeHistory").value || 50),
     away_history: Number(document.getElementById("awayHistory").value || 50),
-    image_url: document.getElementById("imageUrl").value.trim(),
+    image_url: document.getElementById("imageUrl").value.trim() || uploadedImageUrl,
     note: document.getElementById("note").value.trim()
   };
-
-  const url = editingId
-    ? `${API_BASE_URL}/matches/${editingId}`
-    : `${API_BASE_URL}/matches`;
-
-  const method = editingId ? "PUT" : "POST";
-
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      throw new Error("Save failed");
-    }
-
-    await refreshAll();
-    resetForm();
-  } catch (error) {
-    alert("Erreur lors de l'enregistrement");
-  }
-});
+}
 
 function updatePageHeader() {
   pageTitle.textContent = sportNames[currentSport];
-  pageSubtitle.textContent = "Analyse sportive avancée et auto remplissage API";
+  pageSubtitle.textContent = "Analyse automatique multi-sport avec import image";
 }
 
 function resetForm() {
   editingId = null;
+  uploadedImageUrl = "";
   formTitle.textContent = "Ajouter un match";
   matchForm.reset();
 
@@ -235,6 +276,7 @@ function resetForm() {
   document.getElementById("awayForm").value = 50;
   document.getElementById("homeHistory").value = 50;
   document.getElementById("awayHistory").value = 50;
+  imagePreview.innerHTML = "Aucune image importée";
 }
 
 async function fetchMatches() {
@@ -251,15 +293,14 @@ async function fetchDashboard() {
   safeCountEl.textContent = data.safe_count || 0;
   upcomingCountEl.textContent = data.upcoming_count || 0;
 
-  topPredictions.innerHTML =
-    (data.top_predictions || []).map((match) => `
-      <div class="top-mini-card">
-        <h4>${escapeHtml(match.home_team)} vs ${escapeHtml(match.away_team)}</h4>
-        <p>${escapeHtml(match.match_date || "Date non précisée")}</p>
-        <p>Confiance: ${(match.analysis || {}).confidence || 0}%</p>
-        <p>Favori: ${escapeHtml((match.analysis || {}).winner || "-")}</p>
-      </div>
-    `).join("") || `<div class="empty-state">Aucune analyse disponible.</div>`;
+  topPredictions.innerHTML = (data.top_predictions || []).map(match => `
+    <div class="top-mini-card">
+      <h4>${escapeHtml(match.home_team)} vs ${escapeHtml(match.away_team)}</h4>
+      <p>${escapeHtml(match.match_date || "Date non précisée")}</p>
+      <p>Confiance: ${(match.analysis || {}).confidence || 0}%</p>
+      <p>Favori: ${escapeHtml((match.analysis || {}).winner || "-")}</p>
+    </div>
+  `).join("") || `<div class="empty-state">Aucune analyse disponible.</div>`;
 }
 
 async function refreshAll() {
@@ -272,7 +313,7 @@ function getFilteredMatches() {
   const q = searchInput.value.trim().toLowerCase();
   const sf = statusFilter.value;
 
-  let filtered = allMatches.filter((match) => {
+  let filtered = allMatches.filter(match => {
     const text = `${match.home_team} ${match.away_team} ${match.competition || ""} ${match.note || ""}`.toLowerCase();
     const sameSport = match.sport === currentSport;
     const statusOk = sf === "all" || match.status === sf;
@@ -280,7 +321,6 @@ function getFilteredMatches() {
   });
 
   const sortValue = sortSelect.value;
-
   if (sortValue === "confidence") {
     filtered.sort((a, b) => (b.analysis?.confidence || 0) - (a.analysis?.confidence || 0));
   } else if (sortValue === "homeWin") {
@@ -308,7 +348,7 @@ function render() {
     return;
   }
 
-  matchesList.innerHTML = matches.map((match) => {
+  matchesList.innerHTML = matches.map(match => {
     const a = match.analysis || {};
 
     const img = match.image_url
@@ -340,17 +380,10 @@ function render() {
               <span class="${riskClass(a.risk_badge)}">${escapeHtml(a.risk_badge || "RISKY")}</span>
               ${competitionChip}
             </div>
-
             <div class="match-title">${escapeHtml(match.home_team)} vs ${escapeHtml(match.away_team)}</div>
-            <div class="score-box">
-              <span>Score</span>
-              <strong>${match.home_score}</strong>
-              <span>-</span>
-              <strong>${match.away_score}</strong>
-            </div>
+            <div class="score-box"><span>Score</span><strong>${match.home_score}</strong><span>-</span><strong>${match.away_score}</strong></div>
             <div class="match-date">${escapeHtml(match.match_date || "Date non précisée")}</div>
           </div>
-
           ${img}
         </div>
 
@@ -382,13 +415,8 @@ function render() {
             <div class="progress-bar" style="width:${Math.max(5, Math.min(100, a.confidence || 0))}%"></div>
           </div>
 
-          <div class="tag-row">
-            <div class="tag">${escapeHtml(a.summary || "-")}</div>
-          </div>
-
-          <div class="tag-row">
-            <div class="tag">${escapeHtml(match.note || "Aucune note")}</div>
-          </div>
+          <div class="tag-row"><div class="tag">${escapeHtml(a.summary || "-")}</div></div>
+          <div class="tag-row"><div class="tag">${escapeHtml(match.note || "Aucune note")}</div></div>
         </div>
 
         <div class="match-actions">
@@ -401,10 +429,11 @@ function render() {
 }
 
 function editMatch(id) {
-  const match = allMatches.find((m) => m.id === id);
+  const match = allMatches.find(m => m.id === id);
   if (!match) return;
 
   editingId = id;
+  uploadedImageUrl = match.image_url || "";
   formTitle.textContent = "Modifier un match";
 
   document.getElementById("sport").value = match.sport;
@@ -430,6 +459,12 @@ function editMatch(id) {
   document.getElementById("imageUrl").value = match.image_url || "";
   document.getElementById("note").value = match.note || "";
 
+  if (match.image_url) {
+    imagePreview.innerHTML = `<img src="${escapeAttr(match.image_url)}" alt="preview" />`;
+  } else {
+    imagePreview.innerHTML = "Aucune image importée";
+  }
+
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -437,15 +472,11 @@ async function deleteMatch(id) {
   const ok = confirm("Supprimer ce match ?");
   if (!ok) return;
 
-  try {
-    await fetch(`${API_BASE_URL}/matches/${id}`, { method: "DELETE" });
-    await refreshAll();
+  await fetch(`${API_BASE_URL}/matches/${id}`, { method: "DELETE" });
+  await refreshAll();
 
-    if (editingId === id) {
-      resetForm();
-    }
-  } catch (error) {
-    alert("Erreur lors de la suppression.");
+  if (editingId === id) {
+    resetForm();
   }
 }
 
