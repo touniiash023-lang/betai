@@ -123,11 +123,12 @@ autofillBtn.addEventListener("click", async () => {
       body: JSON.stringify(payload)
     });
 
-    if (!res.ok) {
-      throw new Error("Autofill failed");
-    }
-
     const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Erreur backend sur auto remplissage.");
+      return;
+    }
 
     document.getElementById("competition").value = data.competition || "";
     document.getElementById("matchDate").value = data.match_date || "";
@@ -152,7 +153,7 @@ autofillBtn.addEventListener("click", async () => {
 
     alert("Champs remplis automatiquement.");
   } catch (error) {
-    alert("Impossible de récupérer les statistiques automatiques.");
+    alert("Impossible de récupérer les statistiques automatiques : " + error.message);
   }
 });
 

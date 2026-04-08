@@ -87,7 +87,10 @@ def football_api_get(path, params=None):
 
 
 def find_team_id_by_name(team_name):
-    data = football_api_get("/teams", params={"limit": 500})
+    if not team_name.strip():
+        return None
+
+    data = football_api_get("/teams")
     if not data:
         return None
 
@@ -113,156 +116,6 @@ def find_team_id_by_name(team_name):
     return found.get("id") if found else None
 
 
-def fetch_team_matches(team_id, limit=8):
-    data = football_api_get(
-        f"/teams/{team_id}/matches",
-        params={"limit": limit, "status": "FINISHED"}
-    )
-    if not data:
-        return []
-    return data.get("matches", [])
-
-
-def team_form_score(matches, side_name):
-    if not matches:
-        return 50
-
-    points = 0
-    total = 0
-
-    for match in matches[:5]:
-        home = match.get("homeTeam", {}).get("name", "")
-        away = match.get("awayTeam", {}).get("name", "")
-        full_time = match.get("score", {}).get("fullTime", {})
-        hs = safe_int(full_time.get("home"), 0)
-        aw = safe_int(full_time.get("away"), 0)
-
-        if side_name.lower() == home.lower():
-            if hs > aw:
-                points += 3
-            elif hs == aw:
-                points += 1
-        elif side_name.lower() == away.lower():
-            if aw > hs:
-                points += 3
-            elif aw == hs:
-                points += 1
-
-        total += 3
-
-    if total == 0:
-        return 50
-
-    return clamp(round((points / total) * 100), 25, 95)
-
-
-def average_goals_scored(matches, side_name):
-    if not matches:
-        return 1.0
-
-    values = []
-    for match in matches[:5]:
-        home = match.get("homeTeam", {}).get("name", "")
-        away = match.get("awayTeam", {}).get("name", "")
-        full_time = match.get("score", {}).get("fullTime", {})
-        hs = safe_int(full_time.get("home"), 0)
-        aw = safe_int(full_time.get("away"), 0)
-
-        if side_name.lower() == home.lower():
-            values.append(hs)
-        elif side_name.lower() == away.lower():
-            values.append(aw)
-
-    if not values:
-        return 1.0
-
-    return sum(values) / len(values)
-
-
-def estimate_history_score(home_form, away_form):
-    home_history = clamp(round(home_form - 4), 30, 95)
-    away_history = clamp(round(away_form - 4), 30, 92)
-    return home_history, away_history
-
-
-def estimate_possession(home_form, away_form):
-    diff = home_form - away_form
-    home_possession = clamp(50 + round(diff / 2.5), 38, 67)
-    away_possession = 100 - home_possession
-    return home_possession, away_possession
-
-
-def estimate_shots_and_corners(sport, home_avg_goals, away_avg_goals, home_form, away_form):
-    if sport != "football":
-        return 0, 0, 0, 0
-
-    home_shots = clamp(round(4 + home_avg_goals * 2 + (home_form - away_form) / 12), 3, 10)
-    away_shots = clamp(round(3 + away_avg_goals * 2 - (home_form - away_form) / 18), 2, 8)
-    home_corners = clamp(round(3 + home_avg_goals * 1.5 + (home_form - away_form) / 20), 2, 9)
-    away_corners = clamp(round(2 + away_avg_goals * 1.3 - (home_form - away_form) / 25), 1, 7)
-    return home_shots, away_shots, home_corners, away_corners
-
-
-def fetch_real_football_matches(limit=20):
-    data = football_api_get("/matches")
-    if not data:
-        return []
-
-    real_matches = []
-    for match in data.get("matches", [])[:limit]:
-        full_time = (match.get("score") or {}).get("fullTime") or {}
-        utc_date = match.get("utcDate") or ""
-
-        item = {
-            "sport": "football",
-            "status": "finished" if match.get("status") == "FINISHED" else "upcoming",
-            "competition": (match.get("competition") or {}).get("name", ""),
-            "home_team": (match.get("homeTeam") or {}).get("name", ""),
-            "away_team": (match.get("awayTeam") or {}).get("name", ""),
-            "home_score": safe_int(full_time.get("home"), 0),
-            "away_score": safe_int(full_time.get("away"), 0),
-            "match_date": utc_date[:10] if utc_date else "",
-            "home_half_score": 0,
-            "away_half_score": 0,
-            "home_possession": 50,
-            "away_possession": 50,
-            "home_shots": 0,
-            "away_shots": 0,
-            "home_corners": 0,
-            "away_corners": 0,
-            "home_form": 50,
-            "away_form": 50,
-            "home_history": 50,
-            "away_history": 50,
-            "image_url": "",
-            "note": "Match réel importé depuis football-data.org",
-        }
-
-        autofill = smart_autofill({
-            "sport": "football",
-            "status": item["status"],
-            "home_team": item["home_team"],
-            "away_team": item["away_team"],
-            "match_date": item["match_date"],
-        })
-
-        item["competition"] = item["competition"] or autofill.get("competition", "")
-        item["home_possession"] = autofill.get("home_possession", 50)
-        item["away_possession"] = autofill.get("away_possession", 50)
-        item["home_shots"] = autofill.get("home_shots", 0)
-        item["away_shots"] = autofill.get("away_shots", 0)
-        item["home_corners"] = autofill.get("home_corners", 0)
-        item["away_corners"] = autofill.get("away_corners", 0)
-        item["home_form"] = autofill.get("home_form", 50)
-        item["away_form"] = autofill.get("away_form", 50)
-        item["home_history"] = autofill.get("home_history", 50)
-        item["away_history"] = autofill.get("away_history", 50)
-
-        real_matches.append(item)
-
-    return real_matches
-
-
 def smart_autofill(data):
     sport = (data.get("sport") or "football").strip()
     status = (data.get("status") or "upcoming").strip()
@@ -270,8 +123,12 @@ def smart_autofill(data):
     away_team = (data.get("away_team") or "").strip()
     match_date = (data.get("match_date") or "").strip()
 
+    if not home_team or not away_team:
+        return {
+            "error": "Nom d'équipe manquant"
+        }
+
     if sport != "football" or not FOOTBALL_API_KEY:
-        # fallback intelligent local pour sports hors football
         base_home = 70 + (len(home_team) % 15)
         base_away = 60 + (len(away_team) % 13)
         home_form = clamp(base_home, 40, 94)
@@ -287,11 +144,6 @@ def smart_autofill(data):
             home_shots, away_shots, home_corners, away_corners = 10, 8, 0, 0
         else:
             home_shots, away_shots, home_corners, away_corners = 7, 6, 0, 0
-
-        note = (
-            f"Auto remplissage intelligent local : {home_team} {home_form}/100, "
-            f"{away_team} {away_form}/100."
-        )
 
         return {
             "sport": sport,
@@ -310,13 +162,67 @@ def smart_autofill(data):
             "away_shots": away_shots,
             "home_corners": home_corners,
             "away_corners": away_corners,
-            "note": note,
+            "note": "Auto remplissage local utilisé."
         }
 
-    home_team_id = find_team_id_by_name(home_team)
-    away_team_id = find_team_id_by_name(away_team)
+    try:
+        home_team_id = find_team_id_by_name(home_team)
+        away_team_id = find_team_id_by_name(away_team)
 
-    if not home_team_id or not away_team_id:
+        if not home_team_id or not away_team_id:
+            return {
+                "sport": sport,
+                "status": status,
+                "home_team": home_team,
+                "away_team": away_team,
+                "match_date": match_date,
+                "competition": "",
+                "home_form": 72,
+                "away_form": 63,
+                "home_history": 68,
+                "away_history": 59,
+                "home_possession": 54,
+                "away_possession": 46,
+                "home_shots": 6,
+                "away_shots": 4,
+                "home_corners": 5,
+                "away_corners": 3,
+                "note": f"API active mais équipe non trouvée exactement pour {home_team} vs {away_team}. Estimation intelligente utilisée."
+            }
+
+        home_matches = fetch_team_matches(home_team_id, limit=8)
+        away_matches = fetch_team_matches(away_team_id, limit=8)
+
+        home_form = team_form_score(home_matches, home_team)
+        away_form = team_form_score(away_matches, away_team)
+        home_history, away_history = estimate_history_score(home_form, away_form)
+        home_possession, away_possession = estimate_possession(home_form, away_form)
+        home_avg_goals = average_goals_scored(home_matches, home_team)
+        away_avg_goals = average_goals_scored(away_matches, away_team)
+        home_shots, away_shots, home_corners, away_corners = estimate_shots_and_corners(
+            sport, home_avg_goals, away_avg_goals, home_form, away_form
+        )
+
+        return {
+            "sport": sport,
+            "status": status,
+            "home_team": home_team,
+            "away_team": away_team,
+            "match_date": match_date,
+            "competition": "football-data.org",
+            "home_form": home_form,
+            "away_form": away_form,
+            "home_history": home_history,
+            "away_history": away_history,
+            "home_possession": home_possession,
+            "away_possession": away_possession,
+            "home_shots": home_shots,
+            "away_shots": away_shots,
+            "home_corners": home_corners,
+            "away_corners": away_corners,
+            "note": f"Auto remplissage API pour {home_team} vs {away_team}."
+        }
+    except Exception as e:
         return {
             "sport": sport,
             "status": status,
@@ -324,58 +230,18 @@ def smart_autofill(data):
             "away_team": away_team,
             "match_date": match_date,
             "competition": "",
-            "home_form": 72,
-            "away_form": 63,
-            "home_history": 68,
-            "away_history": 59,
-            "home_possession": 54,
-            "away_possession": 46,
-            "home_shots": 6,
+            "home_form": 70,
+            "away_form": 60,
+            "home_history": 66,
+            "away_history": 56,
+            "home_possession": 53,
+            "away_possession": 47,
+            "home_shots": 5,
             "away_shots": 4,
-            "home_corners": 5,
+            "home_corners": 4,
             "away_corners": 3,
-            "note": f"API active mais équipe non trouvée exactement. Estimation intelligente utilisée pour {home_team} vs {away_team}.",
+            "note": f"Fallback utilisé après erreur API: {str(e)}"
         }
-
-    home_matches = fetch_team_matches(home_team_id, limit=8)
-    away_matches = fetch_team_matches(away_team_id, limit=8)
-
-    home_form = team_form_score(home_matches, home_team)
-    away_form = team_form_score(away_matches, away_team)
-    home_history, away_history = estimate_history_score(home_form, away_form)
-    home_possession, away_possession = estimate_possession(home_form, away_form)
-    home_avg_goals = average_goals_scored(home_matches, home_team)
-    away_avg_goals = average_goals_scored(away_matches, away_team)
-    home_shots, away_shots, home_corners, away_corners = estimate_shots_and_corners(
-        sport, home_avg_goals, away_avg_goals, home_form, away_form
-    )
-
-    competition = "football-data.org"
-    note = (
-        f"Auto remplissage API : {home_team} forme {home_form}/100, "
-        f"{away_team} forme {away_form}/100. Estimations basées sur matchs récents."
-    )
-
-    return {
-        "sport": sport,
-        "status": status,
-        "home_team": home_team,
-        "away_team": away_team,
-        "match_date": match_date,
-        "competition": competition,
-        "home_form": home_form,
-        "away_form": away_form,
-        "home_history": home_history,
-        "away_history": away_history,
-        "home_possession": home_possession,
-        "away_possession": away_possession,
-        "home_shots": home_shots,
-        "away_shots": away_shots,
-        "home_corners": home_corners,
-        "away_corners": away_corners,
-        "note": note,
-    }
-
 
 # -----------------------------
 # Analysis
