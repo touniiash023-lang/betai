@@ -6,14 +6,20 @@ import os
 import requests
 
 app = Flask(__name__)
+
 CORS(app)
+
+@app.after_request
+def after_request(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+    return response
 
 matches_db = []
 
 FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY", "").strip()
 FOOTBALL_BASE_URL = "https://api.football-data.org/v4"
-
-
 # -----------------------------
 # Helpers
 # -----------------------------
