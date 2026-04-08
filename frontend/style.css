@@ -13,9 +13,9 @@
   --muted: #9fb0d0;
   --accent: #5b8cff;
   --accent-2: #7c4dff;
-  --success: #11c27b;
-  --warning: #ffb020;
-  --danger: #ff5d73;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
   --white: #ffffff;
 }
 
@@ -213,7 +213,10 @@ body {
 }
 
 .toolbar input,
-.toolbar select {
+.toolbar select,
+.match-form input,
+.match-form select,
+.match-form textarea {
   width: 100%;
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--line);
@@ -249,6 +252,13 @@ body {
   margin-bottom: 16px;
 }
 
+.panel-head-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
 .panel-head h3 {
   font-size: 22px;
 }
@@ -282,14 +292,40 @@ body {
   margin-bottom: 8px;
 }
 
-.match-sport {
+.match-sport,
+.match-status,
+.risk-badge {
   display: inline-block;
   padding: 6px 10px;
   border-radius: 999px;
-  margin-bottom: 12px;
+  margin-right: 8px;
+  margin-bottom: 10px;
   font-size: 12px;
+}
+
+.match-sport {
   background: rgba(91, 140, 255, 0.16);
   border: 1px solid rgba(91, 140, 255, 0.2);
+}
+
+.match-status {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--line);
+}
+
+.risk-safe {
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
+.risk-medium {
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.risk-risky {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.28);
 }
 
 .match-date {
@@ -432,17 +468,6 @@ body {
   font-weight: 700;
 }
 
-.form-row input,
-.form-row select,
-.form-row textarea {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: 14px;
-  padding: 12px 14px;
-  outline: none;
-}
-
 .form-panel {
   max-height: calc(100vh - 285px);
   overflow: auto;
@@ -487,7 +512,8 @@ body {
   }
 
   .topbar,
-  .toolbar {
+  .toolbar,
+  .panel-head-between {
     flex-direction: column;
   }
 

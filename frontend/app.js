@@ -15,11 +15,12 @@ const formTitle = document.getElementById("formTitle");
 const loadDemoBtn = document.getElementById("loadDemoBtn");
 const exportBtn = document.getElementById("exportBtn");
 const importFile = document.getElementById("importFile");
+const autofillBtn = document.getElementById("autofillBtn");
 
 const totalMatchesEl = document.getElementById("totalMatches");
-const avgScoreEl = document.getElementById("avgScore");
 const avgConfidenceEl = document.getElementById("avgConfidence");
-const strongPredictionEl = document.getElementById("strongPrediction");
+const safeCountEl = document.getElementById("safeCount");
+const avgScoreEl = document.getElementById("avgScore");
 
 const sportNames = {
   football: "Football",
@@ -51,7 +52,6 @@ loadDemoBtn.addEventListener("click", async () => {
 exportBtn.addEventListener("click", async () => {
   const res = await fetch(`${API_BASE_URL}/matches/export`);
   const data = await res.json();
-
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
 
@@ -59,6 +59,7 @@ exportBtn.addEventListener("click", async () => {
   a.href = url;
   a.download = "matches_export.json";
   a.click();
+
   URL.revokeObjectURL(url);
 });
 
@@ -86,11 +87,67 @@ importFile.addEventListener("change", async (event) => {
   event.target.value = "";
 });
 
+autofillBtn.addEventListener("click", async () => {
+  const sport = document.getElementById("sport").value;
+  const status = document.getElementById("status").value;
+  const homeTeam = document.getElementById("homeTeam").value.trim();
+  const awayTeam = document.getElementById("awayTeam").value.trim();
+  const matchDate = document.getElementById("matchDate").value;
+
+  if (!homeTeam || !awayTeam) {
+    alert("Entrez d'abord les deux équipes / joueurs.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/autofill-match`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sport,
+        status,
+        home_team: homeTeam,
+        away_team: awayTeam,
+        match_date: matchDate
+      })
+    });
+
+    if (!res.ok) throw new Error("Auto remplissage impossible");
+
+    const data = await res.json();
+
+    document.getElementById("matchDate").value = data.match_date || "";
+    document.getElementById("homePossession").value = data.home_possession ?? 50;
+    document.getElementById("awayPossession").value = data.away_possession ?? 50;
+    document.getElementById("homeShots").value = data.home_shots ?? 0;
+    document.getElementById("awayShots").value = data.away_shots ?? 0;
+    document.getElementById("homeCorners").value = data.home_corners ?? 0;
+    document.getElementById("awayCorners").value = data.away_corners ?? 0;
+    document.getElementById("homeForm").value = data.home_form ?? 50;
+    document.getElementById("awayForm").value = data.away_form ?? 50;
+    document.getElementById("homeHistory").value = data.home_history ?? 50;
+    document.getElementById("awayHistory").value = data.away_history ?? 50;
+    document.getElementById("note").value = data.note || "";
+
+    if (status === "upcoming") {
+      document.getElementById("homeScore").value = 0;
+      document.getElementById("awayScore").value = 0;
+      document.getElementById("homeHalfScore").value = 0;
+      document.getElementById("awayHalfScore").value = 0;
+    }
+
+    alert("Champs remplis automatiquement.");
+  } catch (error) {
+    alert("Impossible de récupérer les statistiques automatiques.");
+  }
+});
+
 matchForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const payload = {
     sport: document.getElementById("sport").value,
+    status: document.getElementById("status").value,
     home_team: document.getElementById("homeTeam").value.trim(),
     away_team: document.getElementById("awayTeam").value.trim(),
     home_score: Number(document.getElementById("homeScore").value || 0),
@@ -132,7 +189,7 @@ matchForm.addEventListener("submit", async (e) => {
 
 function updatePageHeader() {
   pageTitle.textContent = sportNames[currentSport];
-  pageSubtitle.textContent = "Pronostics statistiques avancés avec pourcentages";
+  pageSubtitle.textContent = "Pronostics intelligents avec mode à venir / terminé";
 }
 
 function resetForm() {
@@ -141,6 +198,7 @@ function resetForm() {
   matchForm.reset();
 
   document.getElementById("sport").value = currentSport;
+  document.getElementById("status").value = "upcoming";
   document.getElementById("homeScore").value = 0;
   document.getElementById("awayScore").value = 0;
   document.getElementById("homeHalfScore").value = 0;
@@ -179,6 +237,9 @@ function getFilteredMatches() {
     filtered.sort((a, b) => (b.analysis?.home_win_pct || 0) - (a.analysis?.home_win_pct || 0));
   } else if (sortValue === "awayWin") {
     filtered.sort((a, b) => (b.analysis?.away_win_pct || 0) - (a.analysis?.away_win_pct || 0));
+  } else if (sortValue === "risk") {
+    const riskOrder = { SAFE: 3, MEDIUM: 2, RISKY: 1 };
+    filtered.sort((a, b) => (riskOrder[b.analysis?.risk_badge] || 0) - (riskOrder[a.analysis?.risk_badge] || 0));
   } else {
     filtered.sort((a, b) => {
       const da = new Date(a.created_at || 0).getTime();
@@ -194,25 +255,29 @@ function renderStats(matches) {
   totalMatchesEl.textContent = matches.length;
 
   if (!matches.length) {
-    avgScoreEl.textContent = "0";
     avgConfidenceEl.textContent = "0%";
-    strongPredictionEl.textContent = "0";
+    safeCountEl.textContent = "0";
+    avgScoreEl.textContent = "0";
     return;
   }
 
-  const avgScore = matches.reduce((sum, m) => sum + m.home_score + m.away_score, 0) / matches.length;
   const avgConfidence = matches.reduce((sum, m) => sum + (m.analysis?.confidence || 0), 0) / matches.length;
-  const strongPrediction = matches.filter(m => (m.analysis?.confidence || 0) >= 75).length;
+  const avgScore = matches.reduce((sum, m) => sum + m.home_score + m.away_score, 0) / matches.length;
+  const safeCount = matches.filter(m => (m.analysis?.risk_badge || "") === "SAFE").length;
 
-  avgScoreEl.textContent = avgScore.toFixed(1);
   avgConfidenceEl.textContent = `${Math.round(avgConfidence)}%`;
-  strongPredictionEl.textContent = strongPrediction;
+  safeCountEl.textContent = safeCount;
+  avgScoreEl.textContent = avgScore.toFixed(1);
 }
 
-function getWinnerTag(match) {
-  const winner = match.analysis?.winner || "-";
-  if (winner === "Nul") return "Pronostic équilibré";
-  return `Favori : ${winner}`;
+function riskClass(risk) {
+  if (risk === "SAFE") return "risk-safe";
+  if (risk === "MEDIUM") return "risk-medium";
+  return "risk-risky";
+}
+
+function statusLabel(status) {
+  return status === "finished" ? "Terminé" : "À venir";
 }
 
 function render() {
@@ -237,6 +302,8 @@ function render() {
         <div class="match-top">
           <div>
             <div class="match-sport">${escapeHtml(sportNames[match.sport] || match.sport)}</div>
+            <div class="match-status">${escapeHtml(statusLabel(match.status))}</div>
+            <div class="risk-badge ${riskClass(a.risk_badge)}">${escapeHtml(a.risk_badge || "RISKY")}</div>
             <div class="match-title">${escapeHtml(match.home_team)} vs ${escapeHtml(match.away_team)}</div>
             <div class="score-box">
               <span>Score</span>
@@ -272,14 +339,16 @@ function render() {
             <div>Score probable : ${escapeHtml(a.likely_score || "-")}</div>
             <div>BTTS : ${a.btts ? "Oui" : "Non"}</div>
             <div>Over 2.5 / total élevé : ${a.over_2_5 ? "Oui" : "Non"}</div>
-            <div>Tirs / bonus : ${match.home_shots} - ${match.away_shots}</div>
-            <div>Corners / stats bonus : ${match.home_corners} - ${match.away_corners}</div>
+            <div>Tirs / stats : ${match.home_shots} - ${match.away_shots}</div>
+            <div>Corners / bonus : ${match.home_corners} - ${match.away_corners}</div>
+            <div>Forme : ${match.home_form} - ${match.away_form}</div>
+            <div>Historique : ${match.home_history} - ${match.away_history}</div>
           </div>
 
           <div class="tag-row">
-            <div class="tag">${escapeHtml(getWinnerTag(match))}</div>
             <div class="tag">Confiance : ${a.confidence || 0}%</div>
             <div class="tag">Indice offensif : ${a.attack_index || 0}</div>
+            <div class="tag">Mode : ${match.status === "finished" ? "Analyse post-match" : "Pronostic pré-match"}</div>
           </div>
 
           <div class="progress">
@@ -312,6 +381,7 @@ function editMatch(id) {
   formTitle.textContent = "Modifier un match";
 
   document.getElementById("sport").value = match.sport;
+  document.getElementById("status").value = match.status || "upcoming";
   document.getElementById("homeTeam").value = match.home_team;
   document.getElementById("awayTeam").value = match.away_team;
   document.getElementById("homeScore").value = match.home_score;
@@ -341,6 +411,7 @@ async function deleteMatch(id) {
 
   await fetch(`${API_BASE_URL}/matches/${id}`, { method: "DELETE" });
   await fetchMatches();
+
   if (editingId === id) resetForm();
 }
 
