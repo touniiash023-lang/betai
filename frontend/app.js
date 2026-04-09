@@ -38,6 +38,29 @@ const sportNames = {
   table_tennis: "Tennis de table"
 };
 
+document.getElementById("importFile").addEventListener("change", function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+
+            console.log("JSON chargé :", data);
+
+            afficherMatchs(data);
+
+        } catch (err) {
+            alert("Erreur JSON !");
+            console.error(err);
+        }
+    };
+
+    reader.readAsText(file);
+});
+
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
@@ -297,6 +320,39 @@ function renderProfile(profile) {
 function updatePageHeader() {
   pageTitle.textContent = sportNames[currentSport];
   pageSubtitle.textContent = "Prédiction basée sur l'historique enregistré";
+}
+
+function afficherMatchs(data) {
+    const container = document.getElementById("output");
+
+    if (!container) {
+        console.error("output introuvable");
+        return;
+    }
+
+    container.innerHTML = "";
+
+    let matches = data.matches || data["Premier League"] || [];
+
+    matches.forEach(match => {
+        const div = document.createElement("div");
+
+        div.style.padding = "10px";
+        div.style.margin = "10px";
+        div.style.background = "#111";
+        div.style.color = "#fff";
+        div.style.borderRadius = "10px";
+
+        div.innerHTML = `
+            <strong>${match.homeTeam?.name || "Equipe A"}</strong>
+            vs
+            <strong>${match.awayTeam?.name || "Equipe B"}</strong>
+            <br>
+            Score : ${match.score?.fullTime?.home ?? "-"} - ${match.score?.fullTime?.away ?? "-"}
+        `;
+
+        container.appendChild(div);
+    });
 }
 
 function resetForm() {
