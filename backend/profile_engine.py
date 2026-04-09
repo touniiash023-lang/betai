@@ -193,6 +193,112 @@ def build_basketball_profile(history: List[Dict], entity_name: str) -> Dict:
         "away_strength": form_score_from_results(away_points, away_max),
     }
 
+def build_virtual_football_profile(history: List[Dict], entity_name: str) -> Dict:
+    if not history:
+        return {
+            "name": entity_name,
+            "sport": "virtual_football",
+            "matches_played": 0,
+            "wins": 0,
+            "draws": 0,
+            "losses": 0,
+            "form_score": 50,
+            "avg_scored": 1.8,
+            "avg_conceded": 1.6,
+            "avg_possession": 50,
+            "avg_shots": 6,
+            "avg_corners": 4,
+            "btts_rate": 55,
+            "over_2_5_rate": 58,
+            "home_strength": 50,
+            "away_strength": 50,
+        }
+
+    wins = draws = losses = 0
+    goals_for = goals_against = 0
+    possession_total = shots_total = corners_total = 0
+    btts_count = over_count = 0
+    points = 0
+    max_points = 0
+
+    home_points = away_points = 0
+    home_max = away_max = 0
+
+    for match in history:
+        side = get_entity_side(match, entity_name)
+        if not side:
+            continue
+
+        hs = safe_int(match.get("home_score"))
+        aw = safe_int(match.get("away_score"))
+
+        if side == "home":
+            scored = hs
+            conceded = aw
+            possession = safe_int(match.get("home_possession"), 50)
+            shots = safe_int(match.get("home_shots"), 6)
+            corners = safe_int(match.get("home_corners"), 4)
+        else:
+            scored = aw
+            conceded = hs
+            possession = safe_int(match.get("away_possession"), 50)
+            shots = safe_int(match.get("away_shots"), 6)
+            corners = safe_int(match.get("away_corners"), 4)
+
+        goals_for += scored
+        goals_against += conceded
+        possession_total += possession
+        shots_total += shots
+        corners_total += corners
+
+        if scored > 0 and conceded > 0:
+            btts_count += 1
+        if scored + conceded >= 3:
+            over_count += 1
+
+        max_points += 3
+        if side == "home":
+            home_max += 3
+        else:
+            away_max += 3
+
+        if scored > conceded:
+            wins += 1
+            points += 3
+            if side == "home":
+                home_points += 3
+            else:
+                away_points += 3
+        elif scored == conceded:
+            draws += 1
+            points += 1
+            if side == "home":
+                home_points += 1
+            else:
+                away_points += 1
+        else:
+            losses += 1
+
+    played = max(1, len(history))
+
+    return {
+        "name": entity_name,
+        "sport": "virtual_football",
+        "matches_played": len(history),
+        "wins": wins,
+        "draws": draws,
+        "losses": losses,
+        "form_score": form_score_from_results(points, max_points),
+        "avg_scored": round(goals_for / played, 2),
+        "avg_conceded": round(goals_against / played, 2),
+        "avg_possession": round(possession_total / played),
+        "avg_shots": round(shots_total / played, 1),
+        "avg_corners": round(corners_total / played, 1),
+        "btts_rate": round((btts_count / played) * 100),
+        "over_2_5_rate": round((over_count / played) * 100),
+        "home_strength": form_score_from_results(home_points, home_max),
+        "away_strength": form_score_from_results(away_points, away_max),
+    }
 
 def build_tennis_profile(history: List[Dict], entity_name: str, sport_name: str = "tennis") -> Dict:
     if not history:
@@ -258,6 +364,8 @@ def build_profile_for_sport(sport: str, history: List[Dict], entity_name: str) -
 
     if sport == "football":
         return build_football_profile(history, entity_name)
+    if sport == "virtual_football":
+        return build_virtual_football_profile(history, entity_name)
     if sport == "basketball":
         return build_basketball_profile(history, entity_name)
     if sport == "tennis":

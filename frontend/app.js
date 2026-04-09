@@ -32,6 +32,7 @@ const upcomingCountEl = document.getElementById("upcomingCount");
 
 const sportNames = {
   football: "Football",
+  virtual_football: "Football virtuel",
   basketball: "Basket",
   tennis: "Tennis",
   table_tennis: "Tennis de table"
@@ -403,11 +404,11 @@ function render() {
       ? `<span class="chip">${escapeHtml(match.competition)}</span>`
       : "";
 
-    const drawCard = match.sport === "football"
+    const drawCard = ["football", "virtual_football"].includes(match.sport)
       ? `<div class="percent-card"><span>Nul</span><strong>${a.draw_pct || 0}%</strong></div>`
       : "";
 
-    const footballMarkets = match.sport === "football"
+    const footballMarkets = ["football", "virtual_football"].includes(match.sport)
       ? `
         <div>BTTS : ${a.btts ? "Oui" : "Non"}</div>
         <div>Over 2.5 : ${a.over_2_5 ? "Oui" : "Non"}</div>

@@ -2,6 +2,7 @@ from history_engine import get_recent_history, get_h2h_history
 from profile_engine import build_profile_for_sport
 from sports_engine import (
     predict_football_from_profiles,
+    predict_virtual_football_from_profiles,
     predict_basketball_from_profiles,
     predict_tennis_from_profiles,
 )
@@ -21,6 +22,8 @@ def analyze_match_with_history(match, all_matches):
 
     if sport == "football":
         analysis = predict_football_from_profiles(home_profile, away_profile, h2h, match)
+    elif sport == "virtual_football":
+        analysis = predict_virtual_football_from_profiles(home_profile, away_profile, h2h, match)
     elif sport == "basketball":
         analysis = predict_basketball_from_profiles(home_profile, away_profile, h2h, match)
     elif sport == "tennis":
@@ -36,3 +39,5 @@ def analyze_match_with_history(match, all_matches):
         "away_profile": away_profile,
         "h2h_count": len(h2h),
     }
+
+   

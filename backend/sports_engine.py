@@ -153,7 +153,77 @@ def predict_basketball_from_profiles(home_profile: Dict, away_profile: Dict, h2h
         "summary": "Prédiction basée sur l'historique basketball.",
     }
 
+def predict_virtual_football_from_profiles(home_profile: Dict, away_profile: Dict, h2h: List[Dict], match: Dict) -> Dict:
+    h2h_home_bonus, h2h_away_bonus = football_h2h_bonus(
+        h2h, match.get("home_team", ""), match.get("away_team", "")
+    )
 
+    home_power = (
+        home_profile["form_score"] * 0.24 +
+        home_profile["avg_scored"] * 14 +
+        (100 - home_profile["avg_conceded"] * 10) * 0.08 +
+        home_profile["home_strength"] * 0.16 +
+        home_profile["avg_shots"] * 1.9 +
+        home_profile["avg_corners"] * 0.9 +
+        home_profile["btts_rate"] * 0.05 +
+        home_profile["over_2_5_rate"] * 0.06 +
+        h2h_home_bonus +
+        5
+    )
+
+    away_power = (
+        away_profile["form_score"] * 0.24 +
+        away_profile["avg_scored"] * 14 +
+        (100 - away_profile["avg_conceded"] * 10) * 0.08 +
+        away_profile["away_strength"] * 0.16 +
+        away_profile["avg_shots"] * 1.9 +
+        away_profile["avg_corners"] * 0.9 +
+        away_profile["btts_rate"] * 0.05 +
+        away_profile["over_2_5_rate"] * 0.06 +
+        h2h_away_bonus
+    )
+
+    gap = abs(home_power - away_power)
+    confidence = clamp(round(50 + gap * 0.55), 50, 92)
+
+    draw_raw = 22 + max(4, 14 - int(gap / 9))
+    home_pct, draw_pct, away_pct = normalize_3way(home_power, draw_raw, away_power)
+
+    total_goal_bias = (
+        home_profile["avg_scored"] +
+        away_profile["avg_scored"] +
+        home_profile["avg_conceded"] +
+        away_profile["avg_conceded"]
+    ) / 2
+
+    if home_power > away_power:
+        winner = match.get("home_team", "Domicile")
+        likely_score = "3-1" if total_goal_bias >= 2.4 else "2-1"
+    elif away_power > home_power:
+        winner = match.get("away_team", "Extérieur")
+        likely_score = "1-3" if total_goal_bias >= 2.4 else "1-2"
+    else:
+        winner = "Nul"
+        likely_score = "2-2" if total_goal_bias >= 2.4 else "1-1"
+
+    btts = likely_score in ["1-1", "2-1", "1-2", "2-2", "3-1", "1-3"]
+    over_2_5 = likely_score in ["2-1", "1-2", "2-2", "3-1", "1-3"]
+
+    return {
+        "winner": winner,
+        "half_winner": winner if winner != "Nul" else "Nul",
+        "home_win_pct": home_pct,
+        "draw_pct": draw_pct,
+        "away_win_pct": away_pct,
+        "likely_score": likely_score,
+        "btts": btts,
+        "over_2_5": over_2_5,
+        "confidence": confidence,
+        "risk_badge": risk_badge(confidence),
+        "attack_index": round((home_profile["avg_shots"] + away_profile["avg_shots"]) / 2),
+        "summary": "Prédiction basée sur l'historique football virtuel.",
+    }
+    
 def predict_tennis_from_profiles(home_profile: Dict, away_profile: Dict, h2h: List[Dict], match: Dict, tt_mode: bool = False) -> Dict:
     home_power = (
         home_profile["form_score"] * 0.42 +

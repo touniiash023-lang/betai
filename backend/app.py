@@ -64,6 +64,10 @@ def smart_autofill(data):
         home_possession, away_possession = 54, 46
         home_shots, away_shots = 6, 4
         home_corners, away_corners = 5, 3
+    elif sport == "virtual_football":
+        home_possession, away_possession = 52, 48
+        home_shots, away_shots = 7, 6
+        home_corners, away_corners = 4, 3
     elif sport == "basketball":
         home_possession, away_possession = 50, 50
         home_shots, away_shots = 22, 19
@@ -381,6 +385,55 @@ def seed_demo():
     global matches_db
 
     demo = [
+                {
+            "sport": "virtual_football",
+            "status": "finished",
+            "competition": "Virtual League",
+            "home_team": "PSG Virtuel",
+            "away_team": "Lyon Virtuel",
+            "home_score": 3,
+            "away_score": 1,
+            "match_date": "2026-04-08",
+            "home_half_score": 2,
+            "away_half_score": 1,
+            "home_possession": 53,
+            "away_possession": 47,
+            "home_shots": 8,
+            "away_shots": 5,
+            "home_corners": 4,
+            "away_corners": 2,
+            "note": "Historique football virtuel"
+        },
+        {
+            "sport": "virtual_football",
+            "status": "finished",
+            "competition": "Virtual League",
+            "home_team": "Liverpool Virtuel",
+            "away_team": "Chelsea Virtuel",
+            "home_score": 2,
+            "away_score": 2,
+            "match_date": "2026-04-09",
+            "home_half_score": 1,
+            "away_half_score": 1,
+            "home_possession": 51,
+            "away_possession": 49,
+            "home_shots": 7,
+            "away_shots": 6,
+            "home_corners": 3,
+            "away_corners": 3,
+            "note": "Historique football virtuel"
+        },
+        {
+            "sport": "virtual_football",
+            "status": "upcoming",
+            "competition": "Virtual League",
+            "home_team": "PSG Virtuel",
+            "away_team": "Liverpool Virtuel",
+            "home_score": 0,
+            "away_score": 0,
+            "match_date": "2026-04-21",
+            "note": "Match futur football virtuel"
+        },
         {
             "sport": "football",
             "status": "finished",
