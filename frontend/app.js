@@ -20,8 +20,10 @@ const exportBtn = document.getElementById("exportBtn");
 const importFile = document.getElementById("importFile");
 const autofillBtn = document.getElementById("autofillBtn");
 const analyzeBtn = document.getElementById("analyzeBtn");
+const profileBtn = document.getElementById("profileBtn");
 const imageFileInput = document.getElementById("imageFile");
 const imagePreview = document.getElementById("imagePreview");
+const profileBox = document.getElementById("profileBox");
 
 const totalMatchesEl = document.getElementById("totalMatches");
 const avgConfidenceEl = document.getElementById("avgConfidence");
@@ -82,7 +84,7 @@ importFile.addEventListener("change", async (event) => {
       body: JSON.stringify(parsed)
     });
 
-    if (!res.ok) throw new Error("Import failed");
+    if (!res.ok) throw new Error();
 
     await refreshAll();
     alert("Import JSON réussi");
@@ -117,7 +119,7 @@ imageFileInput.addEventListener("change", async (event) => {
     imagePreview.innerHTML = `<img src="${escapeAttr(uploadedImageUrl)}" alt="preview" />`;
     document.getElementById("imageUrl").value = uploadedImageUrl;
     alert("Image importée avec succès.");
-  } catch (error) {
+  } catch {
     alert("Impossible d'importer l'image.");
   }
 });
@@ -174,7 +176,7 @@ analyzeBtn.addEventListener("click", async () => {
   const payload = collectFormData();
 
   try {
-    const res = await fetch(`${API_BASE_URL}/matches/analyze`, {
+    const res = await fetch(`${API_BASE_URL}/predict-with-history`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -183,16 +185,45 @@ analyzeBtn.addEventListener("click", async () => {
     const data = await res.json();
 
     if (!res.ok) {
-      alert(data.error || "Erreur analyse.");
+      alert(data.error || "Erreur analyse historique.");
       return;
     }
 
-    const analysis = data.match.analysis || {};
+    const a = data.analysis || {};
     alert(
-      `Analyse terminée\n\nFavori: ${analysis.winner || "-"}\nScore probable: ${analysis.likely_score || "-"}\nConfiance: ${analysis.confidence || 0}%`
+      `Analyse historique terminée
+
+Favori: ${a.winner || "-"}
+Score probable: ${a.likely_score || "-"}
+Confiance: ${a.confidence || 0}%
+H2H trouvés: ${data.h2h_count || 0}`
     );
-  } catch (error) {
-    alert("Impossible de lancer l'analyse.");
+  } catch {
+    alert("Impossible de lancer l'analyse historique.");
+  }
+});
+
+profileBtn.addEventListener("click", async () => {
+  const sport = document.getElementById("sport").value;
+  const name = document.getElementById("homeTeam").value.trim();
+
+  if (!name) {
+    alert("Entrez d'abord l'équipe / joueur domicile.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/profiles/entity?sport=${encodeURIComponent(sport)}&name=${encodeURIComponent(name)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Erreur profil.");
+      return;
+    }
+
+    renderProfile(data.profile);
+  } catch {
+    alert("Impossible de charger le profil.");
   }
 });
 
@@ -249,9 +280,22 @@ function collectFormData() {
   };
 }
 
+function renderProfile(profile) {
+  if (!profile) {
+    profileBox.innerHTML = "Aucun profil trouvé.";
+    return;
+  }
+
+  const lines = Object.entries(profile).map(([key, value]) => {
+    return `<div><strong>${escapeHtml(key)} :</strong> ${escapeHtml(String(value))}</div>`;
+  });
+
+  profileBox.innerHTML = lines.join("");
+}
+
 function updatePageHeader() {
   pageTitle.textContent = sportNames[currentSport];
-  pageSubtitle.textContent = "Analyse automatique multi-sport avec import image";
+  pageSubtitle.textContent = "Prédiction basée sur l'historique enregistré";
 }
 
 function resetForm() {
@@ -277,6 +321,7 @@ function resetForm() {
   document.getElementById("homeHistory").value = 50;
   document.getElementById("awayHistory").value = 50;
   imagePreview.innerHTML = "Aucune image importée";
+  profileBox.innerHTML = "Aucun profil chargé.";
 }
 
 async function fetchMatches() {
@@ -350,7 +395,6 @@ function render() {
 
   matchesList.innerHTML = matches.map(match => {
     const a = match.analysis || {};
-
     const img = match.image_url
       ? `<img class="match-image" src="${escapeAttr(match.image_url)}" alt="match" />`
       : `<div class="match-image"></div>`;
@@ -400,15 +444,15 @@ function render() {
             <div>Score probable : ${escapeHtml(a.likely_score || "-")}</div>
             <div>Confiance : ${a.confidence || 0}%</div>
             ${footballMarkets}
-            <div>Forme : ${match.home_form} - ${match.away_form}</div>
-            <div>Historique : ${match.home_history} - ${match.away_history}</div>
+            <div>Forme saisie : ${match.home_form} - ${match.away_form}</div>
+            <div>Historique saisi : ${match.home_history} - ${match.away_history}</div>
             <div>Possession : ${match.home_possession}% - ${match.away_possession}%</div>
             <div>Tirs / stats : ${match.home_shots} - ${match.away_shots}</div>
           </div>
 
           <div class="tag-row">
             <div class="tag">Indice offensif : ${a.attack_index || 0}</div>
-            <div class="tag">Mode : ${match.status === "finished" ? "Post-match" : "Pré-match"}</div>
+            <div class="tag">Mode : ${match.status === "finished" ? "Historique" : "Prévision"}</div>
           </div>
 
           <div class="progress">

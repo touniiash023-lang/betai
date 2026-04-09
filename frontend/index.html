@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BetAI V6 Hybrid</title>
+  <title>BetAI V7 History</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,8 +13,8 @@
         <div class="brand">
           <div class="brand-logo">BA</div>
           <div>
-            <h1>BetAI V6</h1>
-            <p>Hybrid Multi-Sport</p>
+            <h1>BetAI V7</h1>
+            <p>History Engine</p>
           </div>
         </div>
 
@@ -28,8 +28,8 @@
 
       <div class="sidebar-footer">
         <div class="footer-box">
-          <strong>V6 Hybride</strong>
-          <p>Ajout manuel, import image, analyse automatique, multi-sport.</p>
+          <strong>V7 Historique</strong>
+          <p>Profils automatiques, historique par équipe/joueur, prédiction basée sur historique.</p>
         </div>
       </div>
     </aside>
@@ -38,7 +38,7 @@
       <header class="topbar">
         <div>
           <h2 id="pageTitle">Football</h2>
-          <p id="pageSubtitle">Analyse automatique multi-sport avec import image</p>
+          <p id="pageSubtitle">Prédiction basée sur l'historique enregistré</p>
         </div>
 
         <div class="topbar-actions">
@@ -232,20 +232,26 @@
             </div>
 
             <div class="form-row">
-              <div id="imagePreview" class="image-preview empty-preview">Aucune image importée</div>
+              <div id="imagePreview" class="image-preview">Aucune image importée</div>
             </div>
 
             <div class="form-row">
               <label for="note">Note / résumé</label>
-              <textarea id="note" rows="4" placeholder="Résumé, stats visibles, contexte..."></textarea>
+              <textarea id="note" rows="4" placeholder="Résumé, tendance, stats visibles..."></textarea>
             </div>
 
             <div class="form-actions">
               <button type="submit" class="primary-btn">Enregistrer</button>
               <button type="button" id="analyzeBtn" class="secondary-btn">Analyser maintenant</button>
+              <button type="button" id="profileBtn" class="secondary-btn">Voir profil domicile</button>
               <button type="button" id="cancelEditBtn" class="secondary-btn">Annuler</button>
             </div>
           </form>
+
+          <div class="panel mini-panel">
+            <div class="panel-head"><h3>Profil calculé</h3></div>
+            <div id="profileBox" class="profile-box empty-state">Aucun profil chargé.</div>
+          </div>
         </div>
       </section>
     </main>

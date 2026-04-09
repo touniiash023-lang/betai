@@ -1,27 +1,25 @@
-from typing import Dict
+from typing import Dict, List
 
 
 def clamp(value, low, high):
     return max(low, min(high, value))
 
 
-def normalize_2way(home_raw, away_raw):
-    total = home_raw + away_raw
+def normalize_2way(a, b):
+    total = a + b
     if total <= 0:
         return 50, 50
+    a_pct = round((a / total) * 100)
+    b_pct = 100 - a_pct
+    return a_pct, b_pct
 
-    home_pct = round((home_raw / total) * 100)
-    away_pct = 100 - home_pct
-    return home_pct, away_pct
 
-
-def normalize_3way(home_raw, draw_raw, away_raw):
-    total = home_raw + draw_raw + away_raw
+def normalize_3way(home, draw, away):
+    total = home + draw + away
     if total <= 0:
         return 33, 34, 33
-
-    home_pct = round((home_raw / total) * 100)
-    draw_pct = round((draw_raw / total) * 100)
+    home_pct = round((home / total) * 100)
+    draw_pct = round((draw / total) * 100)
     away_pct = 100 - home_pct - draw_pct
     return home_pct, draw_pct, away_pct
 
@@ -34,46 +32,67 @@ def risk_badge(confidence):
     return "RISKY"
 
 
-def analyze_football(match: Dict):
-    home_form = int(match.get("home_form", 50))
-    away_form = int(match.get("away_form", 50))
-    home_history = int(match.get("home_history", 50))
-    away_history = int(match.get("away_history", 50))
-    home_possession = int(match.get("home_possession", 50))
-    away_possession = int(match.get("away_possession", 50))
-    home_shots = int(match.get("home_shots", 0))
-    away_shots = int(match.get("away_shots", 0))
-    home_corners = int(match.get("home_corners", 0))
-    away_corners = int(match.get("away_corners", 0))
+def football_h2h_bonus(h2h: List[Dict], home_team: str, away_team: str):
+    home_wins = 0
+    away_wins = 0
+
+    for match in h2h[:5]:
+        hs = int(match.get("home_score", 0))
+        aw = int(match.get("away_score", 0))
+
+        if match.get("home_team") == home_team and hs > aw:
+            home_wins += 1
+        elif match.get("away_team") == home_team and aw > hs:
+            home_wins += 1
+
+        if match.get("home_team") == away_team and hs > aw:
+            away_wins += 1
+        elif match.get("away_team") == away_team and aw > hs:
+            away_wins += 1
+
+    return home_wins * 4, away_wins * 4
+
+
+def predict_football_from_profiles(home_profile: Dict, away_profile: Dict, h2h: List[Dict], match: Dict) -> Dict:
+    h2h_home_bonus, h2h_away_bonus = football_h2h_bonus(
+        h2h, match.get("home_team", ""), match.get("away_team", "")
+    )
 
     home_power = (
-        home_form * 0.30 +
-        home_history * 0.22 +
-        home_possession * 0.14 +
-        home_shots * 2.0 +
-        home_corners * 1.0 +
+        home_profile["form_score"] * 0.26 +
+        home_profile["avg_scored"] * 12 +
+        (100 - home_profile["avg_conceded"] * 10) * 0.10 +
+        home_profile["home_strength"] * 0.18 +
+        home_profile["avg_possession"] * 0.10 +
+        home_profile["avg_shots"] * 1.8 +
+        home_profile["avg_corners"] * 1.1 +
+        h2h_home_bonus +
         6
     )
+
     away_power = (
-        away_form * 0.30 +
-        away_history * 0.22 +
-        away_possession * 0.14 +
-        away_shots * 2.0 +
-        away_corners * 1.0
+        away_profile["form_score"] * 0.26 +
+        away_profile["avg_scored"] * 12 +
+        (100 - away_profile["avg_conceded"] * 10) * 0.10 +
+        away_profile["away_strength"] * 0.18 +
+        away_profile["avg_possession"] * 0.10 +
+        away_profile["avg_shots"] * 1.8 +
+        away_profile["avg_corners"] * 1.1 +
+        h2h_away_bonus
     )
 
     gap = abs(home_power - away_power)
-    confidence = clamp(round(50 + gap * 1.1), 50, 93)
+    confidence = clamp(round(52 + gap * 0.6), 50, 94)
 
-    draw_raw = 24 + max(4, 18 - int(gap))
+    draw_raw = 26 + max(4, 16 - int(gap / 8))
     home_pct, draw_pct, away_pct = normalize_3way(home_power, draw_raw, away_power)
 
     if home_power > away_power:
         winner = match.get("home_team", "Domicile")
-        likely_score = "2-1" if confidence < 75 else "2-0"
+        likely_score = "2-1" if confidence < 76 else "2-0"
     elif away_power > home_power:
         winner = match.get("away_team", "Extérieur")
-        likely_score = "1-2" if confidence < 75 else "0-2"
+        likely_score = "1-2" if confidence < 76 else "0-2"
     else:
         winner = "Nul"
         likely_score = "1-1"
@@ -92,28 +111,32 @@ def analyze_football(match: Dict):
         "over_2_5": over_2_5,
         "confidence": confidence,
         "risk_badge": risk_badge(confidence),
-        "attack_index": round((home_shots + away_shots + home_corners + away_corners) / 2),
-        "summary": f"Analyse football : avantage {'domicile' if winner == match.get('home_team') else 'extérieur' if winner == match.get('away_team') else 'équilibré'}."
+        "attack_index": round((home_profile["avg_shots"] + away_profile["avg_shots"]) / 2),
+        "summary": "Prédiction basée sur l'historique football des deux équipes.",
     }
 
 
-def analyze_basketball(match: Dict):
-    home_form = int(match.get("home_form", 50))
-    away_form = int(match.get("away_form", 50))
-    home_history = int(match.get("home_history", 50))
-    away_history = int(match.get("away_history", 50))
-    home_shots = int(match.get("home_shots", 0))
-    away_shots = int(match.get("away_shots", 0))
-
-    home_power = home_form * 0.34 + home_history * 0.22 + home_shots * 1.8 + 4
-    away_power = away_form * 0.34 + away_history * 0.22 + away_shots * 1.8
+def predict_basketball_from_profiles(home_profile: Dict, away_profile: Dict, h2h: List[Dict], match: Dict) -> Dict:
+    home_power = (
+        home_profile["form_score"] * 0.34 +
+        home_profile["avg_scored"] * 0.55 +
+        (130 - home_profile["avg_conceded"]) * 0.18 +
+        home_profile["home_strength"] * 0.22 +
+        5
+    )
+    away_power = (
+        away_profile["form_score"] * 0.34 +
+        away_profile["avg_scored"] * 0.55 +
+        (130 - away_profile["avg_conceded"]) * 0.18 +
+        away_profile["away_strength"] * 0.22
+    )
 
     gap = abs(home_power - away_power)
-    confidence = clamp(round(52 + gap * 1.05), 50, 94)
+    confidence = clamp(round(53 + gap * 0.8), 50, 95)
     home_pct, away_pct = normalize_2way(home_power, away_power)
 
     winner = match.get("home_team") if home_power >= away_power else match.get("away_team")
-    likely_score = "102-96" if winner == match.get("home_team") else "96-102"
+    likely_score = "104-97" if winner == match.get("home_team") else "97-104"
 
     return {
         "winner": winner,
@@ -126,28 +149,30 @@ def analyze_basketball(match: Dict):
         "over_2_5": True,
         "confidence": confidence,
         "risk_badge": risk_badge(confidence),
-        "attack_index": round((home_shots + away_shots) / 2),
-        "summary": "Analyse basketball : projection de vainqueur et total points."
+        "attack_index": round((home_profile["avg_scored"] + away_profile["avg_scored"]) / 10),
+        "summary": "Prédiction basée sur l'historique basketball.",
     }
 
 
-def analyze_tennis(match: Dict):
-    home_form = int(match.get("home_form", 50))
-    away_form = int(match.get("away_form", 50))
-    home_history = int(match.get("home_history", 50))
-    away_history = int(match.get("away_history", 50))
-    home_score = int(match.get("home_score", 0))
-    away_score = int(match.get("away_score", 0))
-
-    home_power = home_form * 0.42 + home_history * 0.30 + home_score * 6 + 3
-    away_power = away_form * 0.42 + away_history * 0.30 + away_score * 6
+def predict_tennis_from_profiles(home_profile: Dict, away_profile: Dict, h2h: List[Dict], match: Dict, tt_mode: bool = False) -> Dict:
+    home_power = (
+        home_profile["form_score"] * 0.42 +
+        home_profile["avg_sets_for"] * 16 -
+        home_profile["avg_sets_against"] * 8 +
+        4
+    )
+    away_power = (
+        away_profile["form_score"] * 0.42 +
+        away_profile["avg_sets_for"] * 16 -
+        away_profile["avg_sets_against"] * 8
+    )
 
     gap = abs(home_power - away_power)
-    confidence = clamp(round(53 + gap * 0.95), 50, 95)
+    confidence = clamp(round(54 + gap * 0.8), 50, 95)
     home_pct, away_pct = normalize_2way(home_power, away_power)
 
     winner = match.get("home_team") if home_power >= away_power else match.get("away_team")
-    likely_score = "2-0" if confidence >= 72 else "2-1"
+    likely_score = "3-1" if tt_mode and confidence >= 74 else "3-2" if tt_mode else "2-0" if confidence >= 72 else "2-1"
 
     return {
         "winner": winner,
@@ -160,40 +185,6 @@ def analyze_tennis(match: Dict):
         "over_2_5": False,
         "confidence": confidence,
         "risk_badge": risk_badge(confidence),
-        "attack_index": round((home_form + away_form) / 20),
-        "summary": "Analyse tennis : projection du vainqueur et du score en sets."
-    }
-
-
-def analyze_table_tennis(match: Dict):
-    home_form = int(match.get("home_form", 50))
-    away_form = int(match.get("away_form", 50))
-    home_history = int(match.get("home_history", 50))
-    away_history = int(match.get("away_history", 50))
-    home_score = int(match.get("home_score", 0))
-    away_score = int(match.get("away_score", 0))
-
-    home_power = home_form * 0.45 + home_history * 0.32 + home_score * 5 + 2
-    away_power = away_form * 0.45 + away_history * 0.32 + away_score * 5
-
-    gap = abs(home_power - away_power)
-    confidence = clamp(round(54 + gap * 0.9), 50, 95)
-    home_pct, away_pct = normalize_2way(home_power, away_power)
-
-    winner = match.get("home_team") if home_power >= away_power else match.get("away_team")
-    likely_score = "3-1" if confidence >= 74 else "3-2"
-
-    return {
-        "winner": winner,
-        "half_winner": winner,
-        "home_win_pct": home_pct,
-        "draw_pct": 0,
-        "away_win_pct": away_pct,
-        "likely_score": likely_score,
-        "btts": False,
-        "over_2_5": False,
-        "confidence": confidence,
-        "risk_badge": risk_badge(confidence),
-        "attack_index": round((home_form + away_form) / 18),
-        "summary": "Analyse tennis de table : projection du vainqueur et du score en sets."
+        "attack_index": round((home_profile["form_score"] + away_profile["form_score"]) / 20),
+        "summary": "Prédiction basée sur l'historique du joueur.",
     }
