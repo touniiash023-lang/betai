@@ -38,29 +38,6 @@ const sportNames = {
   table_tennis: "Tennis de table"
 };
 
-document.getElementById("importFile").addEventListener("change", function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-
-    reader.onload = function(e) {
-        try {
-            const data = JSON.parse(e.target.result);
-
-            console.log("JSON chargé :", data);
-
-            afficherMatchs(data);
-
-        } catch (err) {
-            alert("Erreur JSON !");
-            console.error(err);
-        }
-    };
-
-    reader.readAsText(file);
-});
-
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
@@ -108,11 +85,24 @@ importFile.addEventListener("change", async (event) => {
       body: JSON.stringify(parsed)
     });
 
-    if (!res.ok) throw new Error();
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Import JSON échoué");
+      return;
+    }
 
     await refreshAll();
+
+    profileBox.innerHTML = `
+      <div><strong>Import réussi</strong></div>
+      <div>Matchs importés : ${data.imported_count ?? data.count ?? "OK"}</div>
+      <div>Tu peux maintenant entrer 2 équipes puis cliquer sur <strong>Analyser maintenant</strong>.</div>
+    `;
+
     alert("Import JSON réussi");
-  } catch {
+  } catch (error) {
+    console.error(error);
     alert("Fichier JSON invalide");
   }
 
@@ -199,6 +189,11 @@ autofillBtn.addEventListener("click", async () => {
 analyzeBtn.addEventListener("click", async () => {
   const payload = collectFormData();
 
+  if (!payload.home_team || !payload.away_team) {
+    alert("Entrez d'abord les deux équipes / joueurs.");
+    return;
+  }
+
   try {
     const res = await fetch(`${API_BASE_URL}/predict-with-history`, {
       method: "POST",
@@ -214,6 +209,22 @@ analyzeBtn.addEventListener("click", async () => {
     }
 
     const a = data.analysis || {};
+
+    profileBox.innerHTML = `
+      <div><strong>${escapeHtml(payload.home_team)} vs ${escapeHtml(payload.away_team)}</strong></div>
+      <div><strong>Favori :</strong> ${escapeHtml(a.winner || "-")}</div>
+      <div><strong>Score probable :</strong> ${escapeHtml(a.likely_score || "-")}</div>
+      <div><strong>Confiance :</strong> ${a.confidence || 0}%</div>
+      <div><strong>Victoire domicile :</strong> ${a.home_win_pct || 0}%</div>
+      <div><strong>Match nul :</strong> ${a.draw_pct || 0}%</div>
+      <div><strong>Victoire extérieur :</strong> ${a.away_win_pct || 0}%</div>
+      <div><strong>BTTS :</strong> ${a.btts ? "Oui" : "Non"}</div>
+      <div><strong>Over 2.5 :</strong> ${a.over_2_5 ? "Oui" : "Non"}</div>
+      <div><strong>Gagnant mi-temps / set 1 :</strong> ${escapeHtml(a.half_winner || "-")}</div>
+      <div><strong>Résumé :</strong> ${escapeHtml(a.summary || "-")}</div>
+      <div><strong>H2H trouvés :</strong> ${data.h2h_count || 0}</div>
+    `;
+
     alert(
       `Analyse historique terminée
 
@@ -320,39 +331,6 @@ function renderProfile(profile) {
 function updatePageHeader() {
   pageTitle.textContent = sportNames[currentSport];
   pageSubtitle.textContent = "Prédiction basée sur l'historique enregistré";
-}
-
-function afficherMatchs(data) {
-    const container = document.getElementById("output");
-
-    if (!container) {
-        console.error("output introuvable");
-        return;
-    }
-
-    container.innerHTML = "";
-
-    let matches = data.matches || data["Premier League"] || [];
-
-    matches.forEach(match => {
-        const div = document.createElement("div");
-
-        div.style.padding = "10px";
-        div.style.margin = "10px";
-        div.style.background = "#111";
-        div.style.color = "#fff";
-        div.style.borderRadius = "10px";
-
-        div.innerHTML = `
-            <strong>${match.homeTeam?.name || "Equipe A"}</strong>
-            vs
-            <strong>${match.awayTeam?.name || "Equipe B"}</strong>
-            <br>
-            Score : ${match.score?.fullTime?.home ?? "-"} - ${match.score?.fullTime?.away ?? "-"}
-        `;
-
-        container.appendChild(div);
-    });
 }
 
 function resetForm() {
